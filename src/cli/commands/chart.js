@@ -51,6 +51,14 @@ register('search', {
   },
 });
 
+register('search-live', {
+  description: 'Search symbols via the logged-in session (searchSymbols API)',
+  handler: (opts, positionals) => {
+    if (!positionals[0]) throw new Error('Query required. Usage: tv search-live AAPL');
+    return core.symbolSearchLive({ query: positionals.join(' ') });
+  },
+});
+
 register('range', {
   description: 'Get or set the visible chart range',
   options: {

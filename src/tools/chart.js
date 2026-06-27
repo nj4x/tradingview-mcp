@@ -71,4 +71,11 @@ export function registerChartTools(server) {
     try { return jsonResult(await core.symbolSearch({ query, type })); }
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
   });
+
+  server.tool('symbol_search_live', 'Search symbols using the logged-in TradingView session (in-app searchSymbols API). Complements symbol_search which is anonymous.', {
+    query: z.string().describe('Search query (e.g., "AAPL", "crude oil", "ES")'),
+  }, async ({ query }) => {
+    try { return jsonResult(await core.symbolSearchLive({ query })); }
+    catch (err) { return jsonResult({ success: false, error: err.message }, true); }
+  });
 }

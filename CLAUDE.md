@@ -99,6 +99,14 @@ Use `study_filter` parameter to target a specific indicator by name substring (e
 ### "Screen multiple symbols"
 - `batch_run` with `symbols: ["ES1!", "NQ1!", "YM1!"]` and `action: "screenshot"` or `"get_ohlcv"`
 
+### "Get news for a symbol"
+- `news_get_headlines` → recent headlines for the current chart symbol (or pass `symbol` as a `pro_name` like "NASDAQ:AMZN"). Returns id, title, provider, published, urgency.
+- `news_get_story` → full article body text for a headline `id` from `news_get_headlines`
+- Both read TradingView's logged-in news feed; the chart must have a symbol loaded
+
+### "Search symbols (logged-in catalog)"
+- `symbol_search_live` → autocomplete against the logged-in session (`searchSymbols`), complements the anonymous `symbol_search`
+
 ### "Draw on the chart"
 - `draw_shape` → horizontal_line, trend_line, rectangle, text (pass point + optional point2)
 - `draw_list` → see what's drawn

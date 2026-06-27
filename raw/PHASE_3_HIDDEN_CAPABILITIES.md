@@ -50,31 +50,37 @@ Probed `window.TradingViewApi`, `window.ChartApiInstance`, `window.TradingView` 
 - **Unit Test Outline:** Get theme → switch to opposite → verify DOM → switch back
 - **Risks:** `_themesApi` is marked `Deferred` in probe; may not be available until user navigates to settings; enum of valid theme names unknown
 
-### 4. **Symbol search live (autocomplete)** — `symbol_search_live`
+### 4. **Symbol search live (autocomplete)** — `symbol_search_live` ✅ SELECTED FOR IMPLEMENTATION
 - **Score:** 17/25 (Feasibility: 4, Value: 4, Effort: 3)
-- **API Path:** `window.TradingViewApi.searchSymbols(query)` (documented in KNOWN_PATHS; returns Promise)
-- **Probe Evidence:** Function exists; current `symbol_search` scrapes dropdown DOM; direct API call is available
-- **Current Status:** Partially done — `symbol_search` uses DOM scraping via the search-dialog UI
+- **API Path:** `window.TradingViewApi.searchSymbols(query)` (returns a Promise; call via `evaluateAsync`)
+- **Probe Evidence (verified live 2026-06-27):** Function exists and resolves to `{ symbols_remaining: <int>, symbols: [ {...} ] }` (50 results for 'AAPL'). This is the in-renderer, **logged-in-session** search — distinct from the existing `symbol_search` which uses a Node-side anonymous `fetch` to `symbol-search.tradingview.com`.
+- **Verified item shape** (per `symbols[]` entry): `symbol`, `description`, `type` (e.g. `commodity`, `stock`), `exchange`, `currency_code`, `provider_id`, `source_id`, `source2: {id, name, description}`, `typespecs: [...]`, plus logo fields. Note: `description` may contain `<em>` highlight tags — strip them.
+- **Current Status:** Complementary to existing `symbol_search` (which scrapes anonymously). This reflects the user's logged-in catalog.
 - **Implementation Sketch:**
-  1. Call `searchSymbols(query)` directly (bypasses UI)
-  2. Returns Promise<{ symbols: [{symbol, name, exchange, ...}], total_count }>
-  3. Optional: format for CLI (CSV-like output)
-- **Unit Test Outline:** Search 'AAPL' → assert results include Apple → search bogus → assert empty
-- **Risks:** REST endpoint behind Cloudflare; may rate-limit; requires logged-in session; return schema undocumented
+  1. `symbol_search_live({ query })`: `safeString()` the query, call `window.TradingViewApi.searchSymbols(<query>)` via `evaluateAsync`.
+  2. Map `result.symbols` → compact `{ symbol, description (em-stripped), type, exchange, currency_code }`, cap at 15.
+  3. Return `{ success, query, source: 'searchSymbols', count, results }`.
+- **Unit Test Outline:** DI-mock `evaluateAsync` returning a canned `{symbols:[...]}` → assert query is `safeString`-escaped in the expression, `<em>` stripped, results capped at 15.
+- **Risks:** Requires logged-in session; resolves async (must use `evaluateAsync`, not `evaluate` — a plain `evaluate` returns `{}` because it doesn't await the Promise).
 
-### 5. **WebSocket-backed streaming** — `stream_realtime` (exploratory)
-- **Score:** 16/25 (Feasibility: 3, Value: 4, Effort: 3)
-- **API Path:** `Network.webSocketFrameReceived` (CDP event, opt-in via `TV_MCP_WS_FRAMES=1`)
-- **Probe Evidence:** Diagnostics buffer now captures WS frames; `core/stream.js` currently uses poll-and-diff (300-2000ms latency)
-- **Current Status:** Infrastructure ready; reverse engineering needed
+### 5. **News headlines + story** — `news_get_headlines`, `news_get_story` ✅ SELECTED FOR IMPLEMENTATION
+- **Score:** 22/25 (Feasibility: 5, Value: 5, Effort: 4)
+- **API Path:** TradingView news REST service, called from **inside the renderer** via `fetch(url, { credentials: 'include' })` to carry the logged-in session cookie
+  - Headlines: `https://news-headlines.tradingview.com/v2/view/headlines/symbol?client=overview&lang=en&symbol=<pro_name>`
+  - Story body: `https://news-headlines.tradingview.com/v2/story?id=<id>&lang=en`
+- **Probe Evidence (verified live 2026-06-27):**
+  - The JS-object API is a **dead end**: `_newsApiDeferredPromise` resolves to `null`, `_newsApi` is undefined. Do NOT pursue the object API.
+  - The REST path works: headlines returns HTTP 200 with `{ items: [...] }` (25 items for `KRAKEN:BTCUSD`); story returns HTTP 200 with a full article payload.
+- **Symbol resolution gotcha (critical):** The `symbol` query param MUST be the listing exchange's `pro_name`, obtained from `window.TradingViewApi.activeChart().symbolExt().pro_name` (e.g. `NASDAQ:AMZN`, `KRAKEN:BTCUSD`). Passing the *display* exchange (e.g. `BATS:AMZN`) returns an **empty `{items:[]}` with a silent 200 OK** — no error, just no data. Always derive `pro_name` from `symbolExt()`, never construct the symbol string by hand.
+- **Headlines response shape** (per item): `id`, `title`, `provider`, `source`, `sourceLogoId`, `published` (unix seconds), `urgency`, `link`, `relatedSymbols: [{symbol, ...}]`, `storyPath`.
+- **Story response shape:** top-level `title`, `provider`, `source`, `published`, `link`, `shortDescription`, `relatedSymbols`, `tags`, and `astDescription` — a tree `{ type: 'root', children: [...] }` where each child is `{ type: 'p'|..., children: [string | node] }`. Flatten `astDescription` recursively to plain text for the body (the live BTC story had 32 paragraph nodes).
 - **Implementation Sketch:**
-  1. Enable `Network.webSocketFrameReceived` subscription (already wired in Phase 1)
-  2. Decode WS frame payloads — TradingView uses a binary format for real-time quote/bar updates
-  3. Parse frames to extract symbol, last price, OHLC deltas, volume
-  4. Emit per-symbol updates with sub-100ms latency
-  5. Expose as CLI `tv stream --symbol ES1! --follow` (realtime tail)
-- **Unit Test Outline:** Start stream → wait 2s → collect 10+ ticks → assert monotonic timestamps → assert price changes
-- **Risks:** WS frame format is undocumented; binary protocol may change with TradingView updates; sub-100ms latency requires careful event batching to avoid context bloat; reverse engineering effort is high; requires live market hours for meaningful testing
+  - `news_get_headlines({ symbol?, limit=25 })`: resolve `pro_name` (use `symbolExt()` when `symbol` omitted, else `safeString()` the passed symbol), `fetch` headlines, map items to compact `{ id, title, provider, published, urgency, relatedSymbols }`, cap at `limit`.
+  - `news_get_story({ id })`: `safeString()` the id, `fetch` story, return `{ title, provider, published, link, body }` where `body` is the flattened `astDescription` text.
+- **Unit Test Outline:** DI-mock `evaluateAsync` → assert generated expression contains the right endpoint + `credentials:'include'` + escaped symbol/id; assert mapper flattens AST and caps headlines.
+- **Risks:** Requires logged-in session (cookie); endpoint is unofficial and may change; `astDescription` node types beyond `p` (lists, quotes, embedded symbols) need a generic recursive flattener, not a `p`-only walk.
+
+> **Note:** The previous #5 candidate, `stream_realtime` (WebSocket frame decoding, 16/25), was **discarded** by user decision (binary RE effort too high, needs live market hours). News replaces it and ranks higher.
 
 ---
 

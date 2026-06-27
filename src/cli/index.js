@@ -26,6 +26,7 @@ import './commands/pane.js';
 import './commands/tab.js';
 import './commands/stream.js';
 import './commands/diagnostics.js';
+import './commands/news.js';
 
 // Run
 import { run } from './router.js';

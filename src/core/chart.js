@@ -239,3 +239,27 @@ export async function symbolSearch({ query, type }) {
 
   return { success: true, query, source: 'rest_api', results, count: results.length };
 }
+
+export async function symbolSearchLive({ query, _deps } = {}) {
+  const { evaluateAsync } = _resolve(_deps);
+  if (!query || !String(query).trim()) throw new Error('query is required');
+  const result = await evaluateAsync(`
+    (async function() {
+      try {
+        var r = await window.TradingViewApi.searchSymbols({ text: ${safeString(query)} });
+        return r && r.symbols ? r.symbols : [];
+      } catch (e) { return { __error: e.message }; }
+    })()
+  `);
+  if (result && result.__error) throw new Error(result.__error);
+  const strip = s => (s || '').replace(/<\/?em>/g, '');
+  const arr = Array.isArray(result) ? result : [];
+  const results = arr.slice(0, 15).map(r => ({
+    symbol: strip(r.symbol),
+    description: strip(r.description),
+    exchange: r.exchange || '',
+    type: r.type || '',
+    currency_code: r.currency_code || '',
+  }));
+  return { success: true, query, source: 'searchSymbols', results, count: results.length };
+}
