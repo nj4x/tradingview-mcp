@@ -3,7 +3,14 @@
  * All functions accept plain options objects and return plain JS objects.
  * They throw on error (callers catch and format).
  */
-import { evaluate, evaluateAsync, getClient } from '../connection.js';
+import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, getClient } from '../connection.js';
+
+function _resolve(deps) {
+  return {
+    evaluate: deps?.evaluate || _evaluate,
+    evaluateAsync: deps?.evaluateAsync || _evaluateAsync,
+  };
+}
 
 // ── Monaco finder (injected into TV page) ──
 const FIND_MONACO = `
@@ -39,7 +46,7 @@ const FIND_MONACO = `
  * Opens the Pine Editor panel and waits for Monaco to become available.
  * Returns true if editor is accessible, false on timeout.
  */
-export async function ensurePineEditorOpen() {
+export async function ensurePineEditorOpen(evaluate = _evaluate) {
   const already = await evaluate(`
     (function() {
       var m = ${FIND_MONACO};
@@ -244,9 +251,12 @@ export async function check({ source }) {
 
 // ── Functions requiring TradingView connection ──
 
-export async function getSource() {
-  const editorReady = await ensurePineEditorOpen();
-  if (!editorReady) throw new Error('Could not open Pine Editor or Monaco not found in React fiber tree.');
+export async function getSource({ _deps, _internal } = {}) {
+  const { evaluate } = _resolve(_deps);
+  if (!_internal?.skipEnsureEditor) {
+    const editorReady = await ensurePineEditorOpen(evaluate);
+    if (!editorReady) throw new Error('Could not open Pine Editor or Monaco not found in React fiber tree.');
+  }
 
   const source = await evaluate(`
     (function() {
@@ -263,9 +273,12 @@ export async function getSource() {
   return { success: true, source, line_count: source.split('\n').length, char_count: source.length };
 }
 
-export async function setSource({ source }) {
-  const editorReady = await ensurePineEditorOpen();
-  if (!editorReady) throw new Error('Could not open Pine Editor.');
+export async function setSource({ source, _deps, _internal }) {
+  const { evaluate } = _resolve(_deps);
+  if (!_internal?.skipEnsureEditor) {
+    const editorReady = await ensurePineEditorOpen(evaluate);
+    if (!editorReady) throw new Error('Could not open Pine Editor.');
+  }
 
   const escaped = JSON.stringify(source);
   const set = await evaluate(`
@@ -281,9 +294,12 @@ export async function setSource({ source }) {
   return { success: true, lines_set: source.split('\n').length };
 }
 
-export async function compile() {
-  const editorReady = await ensurePineEditorOpen();
-  if (!editorReady) throw new Error('Could not open Pine Editor.');
+export async function compile({ _deps, _internal } = {}) {
+  const { evaluate } = _resolve(_deps);
+  if (!_internal?.skipEnsureEditor) {
+    const editorReady = await ensurePineEditorOpen(evaluate);
+    if (!editorReady) throw new Error('Could not open Pine Editor.');
+  }
 
   const clicked = await evaluate(`
     (function() {
@@ -319,9 +335,12 @@ export async function compile() {
   return { success: true, button_clicked: clicked || 'keyboard_shortcut', source: 'dom_fallback' };
 }
 
-export async function getErrors() {
-  const editorReady = await ensurePineEditorOpen();
-  if (!editorReady) throw new Error('Could not open Pine Editor.');
+export async function getErrors({ _deps, _internal } = {}) {
+  const { evaluate } = _resolve(_deps);
+  if (!_internal?.skipEnsureEditor) {
+    const editorReady = await ensurePineEditorOpen(evaluate);
+    if (!editorReady) throw new Error('Could not open Pine Editor.');
+  }
 
   const errors = await evaluate(`
     (function() {
@@ -344,9 +363,12 @@ export async function getErrors() {
   };
 }
 
-export async function save() {
-  const editorReady = await ensurePineEditorOpen();
-  if (!editorReady) throw new Error('Could not open Pine Editor.');
+export async function save({ _deps, _internal } = {}) {
+  const { evaluate } = _resolve(_deps);
+  if (!_internal?.skipEnsureEditor) {
+    const editorReady = await ensurePineEditorOpen(evaluate);
+    if (!editorReady) throw new Error('Could not open Pine Editor.');
+  }
 
   const c = await getClient();
   await c.Input.dispatchKeyEvent({ type: 'keyDown', modifiers: 2, key: 's', code: 'KeyS', windowsVirtualKeyCode: 83 });
@@ -376,9 +398,12 @@ export async function save() {
   return { success: true, action: dialogHandled ? 'saved_with_dialog' : 'Ctrl+S_dispatched' };
 }
 
-export async function getConsole() {
-  const editorReady = await ensurePineEditorOpen();
-  if (!editorReady) throw new Error('Could not open Pine Editor.');
+export async function getConsole({ _deps, _internal } = {}) {
+  const { evaluate } = _resolve(_deps);
+  if (!_internal?.skipEnsureEditor) {
+    const editorReady = await ensurePineEditorOpen(evaluate);
+    if (!editorReady) throw new Error('Could not open Pine Editor.');
+  }
 
   const entries = await evaluate(`
     (function() {
@@ -426,9 +451,12 @@ export async function getConsole() {
   return { success: true, entries: entries || [], entry_count: entries?.length || 0 };
 }
 
-export async function smartCompile() {
-  const editorReady = await ensurePineEditorOpen();
-  if (!editorReady) throw new Error('Could not open Pine Editor.');
+export async function smartCompile({ _deps, _internal } = {}) {
+  const { evaluate } = _resolve(_deps);
+  if (!_internal?.skipEnsureEditor) {
+    const editorReady = await ensurePineEditorOpen(evaluate);
+    if (!editorReady) throw new Error('Could not open Pine Editor.');
+  }
 
   const studiesBefore = await evaluate(`
     (function() {
@@ -505,9 +533,12 @@ export async function smartCompile() {
   };
 }
 
-export async function newScript({ type }) {
-  const editorReady = await ensurePineEditorOpen();
-  if (!editorReady) throw new Error('Could not open Pine Editor.');
+export async function newScript({ type, _deps, _internal }) {
+  const { evaluate } = _resolve(_deps);
+  if (!_internal?.skipEnsureEditor) {
+    const editorReady = await ensurePineEditorOpen(evaluate);
+    if (!editorReady) throw new Error('Could not open Pine Editor.');
+  }
 
   const typeMap = { indicator: 'indicator', strategy: 'strategy', library: 'library' };
   const templates = {
@@ -534,9 +565,12 @@ export async function newScript({ type }) {
   return { success: true, type, action: 'new_script_created', template: typeMap[type] };
 }
 
-export async function openScript({ name }) {
-  const editorReady = await ensurePineEditorOpen();
-  if (!editorReady) throw new Error('Could not open Pine Editor.');
+export async function openScript({ name, _deps, _internal }) {
+  const { evaluate, evaluateAsync } = _resolve(_deps);
+  if (!_internal?.skipEnsureEditor) {
+    const editorReady = await ensurePineEditorOpen(evaluate);
+    if (!editorReady) throw new Error('Could not open Pine Editor.');
+  }
 
   const escapedName = JSON.stringify(name.toLowerCase());
 
@@ -589,7 +623,7 @@ export async function openScript({ name }) {
 }
 
 export async function listScripts() {
-  const scripts = await evaluateAsync(`
+  const scripts = await _evaluateAsync(`
     fetch('https://pine-facade.tradingview.com/pine-facade/list/?filter=saved', { credentials: 'include' })
       .then(function(r) { return r.json(); })
       .then(function(data) {
