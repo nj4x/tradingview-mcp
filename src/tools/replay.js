@@ -38,4 +38,19 @@ export function registerReplayTools(server) {
     try { return jsonResult(await core.status()); }
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
   });
+
+  server.tool(
+    'replay_run',
+    'Run a full replay session in one call: start at `date`, autoplay forward, poll until `steps` bars elapse, then optionally stop. Wall-clock cost ≈ steps × speed_ms + poll overhead (e.g. 50 steps at 200ms ≈ 10s). Returns final date, position, P&L, and steps completed. The atomic replay_start/step/autoplay/status/stop tools remain available.',
+    {
+      date: z.string().optional().describe('Date to start replay from (YYYY-MM-DD). If omitted, first available date.'),
+      steps: z.coerce.number().optional().describe('Number of bars to advance (default 50, capped at 500).'),
+      speed_ms: z.coerce.number().optional().describe('Autoplay delay per bar in ms (default 200). Must be one of: 100, 143, 200, 300, 1000, 2000, 3000, 5000, 10000.'),
+      stop_after: z.coerce.boolean().optional().describe('If true, stop replay and return to realtime after the run (default false).'),
+    },
+    async ({ date, steps, speed_ms, stop_after }) => {
+      try { return jsonResult(await core.run({ date, steps, speed_ms, stop_after })); }
+      catch (err) { return jsonResult({ success: false, error: err.message }, true); }
+    }
+  );
 }

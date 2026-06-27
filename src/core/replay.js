@@ -119,6 +119,75 @@ export async function trade({ action, _deps }) {
   return { success: true, action, position, realized_pnl: pnl };
 }
 
+/**
+ * replay_run (B5) — drive a full replay session in one call.
+ *
+ * Sequence: start(date) → autoplay({ speed }) → poll status() every 100ms until
+ * `steps` bars have elapsed (or status stalls) → optionally stop().
+ *
+ * Wall-clock cost ≈ steps × speed_ms + poll overhead. e.g. 50 steps at 200ms ≈ 10s.
+ * `steps` is capped at 500 (default 50). `speed_ms` defaults to 200ms and is
+ * validated against VALID_AUTOPLAY_DELAYS by the underlying autoplay().
+ *
+ * Thin wrapper — does NOT reimplement replay; delegates to start/autoplay/status/stop.
+ *
+ * @returns { success, final_date, position, pnl, steps_completed, steps_elapsed_ms }
+ */
+export async function run({ date, steps = 50, speed_ms = 200, stop_after = false, _deps } = {}) {
+  // Resolve the replay primitives (allows tests to inject mocks for each).
+  const start_ = _deps?.start || start;
+  const autoplay_ = _deps?.autoplay || autoplay;
+  const status_ = _deps?.status || status;
+  const stop_ = _deps?.stop || stop;
+
+  let n = Number(steps);
+  if (!Number.isFinite(n)) n = 50;
+  n = Math.max(1, Math.min(500, Math.floor(n)));
+
+  let speed = Number(speed_ms);
+  if (!Number.isFinite(speed) || speed <= 0) speed = 200;
+
+  const t0 = Date.now();
+
+  await start_({ date, _deps });
+  await autoplay_({ speed, _deps });
+
+  // Poll until `n` bars advanced (currentDate changes) or autoplay stalls.
+  let st = await status_({ _deps });
+  let lastDate = st.current_date;
+  let stepsCompleted = 0;
+  let stalls = 0;
+  const maxStalls = Math.max(20, Math.ceil((speed * 3) / 100)); // tolerate ~3 delays of no progress
+
+  while (stepsCompleted < n) {
+    await new Promise(r => setTimeout(r, 100));
+    st = await status_({ _deps });
+    if (st.current_date !== lastDate) {
+      stepsCompleted += 1;
+      lastDate = st.current_date;
+      stalls = 0;
+    } else {
+      stalls += 1;
+      if (stalls >= maxStalls) break; // autoplay finished / no more data
+    }
+    if (!st.is_autoplay_started && !st.is_replay_started) break;
+  }
+
+  if (stop_after) {
+    await stop_({ _deps });
+    st = await status_({ _deps });
+  }
+
+  return {
+    success: true,
+    final_date: st.current_date ?? lastDate,
+    position: st.position ?? null,
+    pnl: st.realized_pnl ?? null,
+    steps_completed: stepsCompleted,
+    steps_elapsed_ms: Date.now() - t0,
+  };
+}
+
 export async function status({ _deps } = {}) {
   const { evaluate, getReplayApi } = _resolve(_deps);
   const rp = await getReplayApi();
