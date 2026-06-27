@@ -215,6 +215,24 @@ Claude reads [`CLAUDE.md`](CLAUDE.md) automatically when working in this project
 | "Draw a level at 24500" | `draw_shape` (horizontal_line) |
 | "Take a screenshot" | `capture_screenshot` |
 
+## Tool Exposure Modes
+
+The MCP server can advertise two different sets of tools, controlled by the `TV_MCP_EXTENDED` environment variable. This keeps the default surface focused on chart analysis and avoids exposing power-user / side-effecting tools unless you opt in.
+
+| Mode | How to enable | Tools exposed |
+|------|---------------|---------------|
+| **Default** | `npm start` | 43 — data retrieval, all chart navigation + mutation, screenshots, launch |
+| **Extended** | `TV_MCP_EXTENDED=1 npm start` | 88 — everything in default **plus** the 45 extended tools |
+
+**Default group (43 tools):** health/launch (`tv_health_check`, `tv_launch`, `tv_ui_state`), all chart operations (`chart_get_state`, `chart_set_symbol`, `chart_set_timeframe`, `chart_set_type`, `chart_manage_indicator`, `chart_get_visible_range`, `chart_set_visible_range`, `chart_scroll_to_date`, `chart_report`, `chart_fetch_ohlcv`), symbols/market (`symbol_info`, `symbol_search`, `symbol_search_live`, `market_status`, `quote_get`, `depth_get`), all `data_get_*` readers, `capture_screenshot`, read-only listers (`draw_list`, `draw_get_properties`, `alert_list`, `replay_status`, `watchlist_get`, `layout_list`, `ui_find_element`, `pane_list`, `tab_list`), news (`news_get_headlines`, `news_get_story`), and `options_search`.
+
+**Extended group (45 tools, opt-in):** all 13 Pine Script tools (even read-only ones — Pine dev is a distinct power-user capability), drawing mutators (`draw_shape`, `draw_clear`, `draw_remove_one`), alert mutators (`alert_create`, `alert_delete`), `batch_run`, all replay controls (`replay_start`, `replay_step`, `replay_autoplay`, `replay_stop`, `replay_trade`, `replay_run`), indicator mutators (`indicator_set_inputs`, `indicator_toggle_visibility`), `watchlist_add`, UI automation (`ui_click`, `ui_open_panel`, `ui_fullscreen`, `layout_switch`, `ui_keyboard`, `ui_type_text`, `ui_hover`, `ui_scroll`, `ui_mouse_click`, `ui_evaluate`), pane mutators (`pane_set_layout`, `pane_focus`, `pane_set_symbol`), tab mutators (`tab_new`, `tab_close`, `tab_switch`), and the `tv_discover` diagnostic.
+
+Notes:
+- The grouping uses a **denylist** (`src/tools/_groups.js`): any new tool added later is exposed by default unless explicitly added to the extended set.
+- An unrecognized value (e.g. `TV_MCP_EXTENDED=foo`) prints a warning to stderr and falls back to the default 43-tool mode — it never throws.
+- The **CLI** (`npm run tv -- <cmd>`) is unaffected; every command is always available regardless of this flag.
+
 ## Tool Reference (78 MCP tools)
 
 ### Chart Reading

@@ -1,0 +1,120 @@
+/**
+ * Tool exposure groups — pure offline unit tests (no CDP, no live chart).
+ *
+ * IMPORTANT: never import src/server.js here — it has a top-level
+ * `await server.connect(transport)` that would attempt a CDP connection and
+ * hang/crash offline. We import only _groups.js and the 16 individual
+ * tool registrar modules, and exercise them with a mock registrar.
+ *
+ * Run: node --test tests/tool_groups.test.js
+ */
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { EXTENDED_TOOLS } from '../src/tools/_groups.js';
+import { registerHealthTools } from '../src/tools/health.js';
+import { registerChartTools } from '../src/tools/chart.js';
+import { registerPineTools } from '../src/tools/pine.js';
+import { registerDataTools } from '../src/tools/data.js';
+import { registerCaptureTools } from '../src/tools/capture.js';
+import { registerDrawingTools } from '../src/tools/drawing.js';
+import { registerAlertTools } from '../src/tools/alerts.js';
+import { registerBatchTools } from '../src/tools/batch.js';
+import { registerReplayTools } from '../src/tools/replay.js';
+import { registerIndicatorTools } from '../src/tools/indicators.js';
+import { registerWatchlistTools } from '../src/tools/watchlist.js';
+import { registerUiTools } from '../src/tools/ui.js';
+import { registerPaneTools } from '../src/tools/pane.js';
+import { registerTabTools } from '../src/tools/tab.js';
+import { registerNewsTools } from '../src/tools/news.js';
+import { registerOptionsTools } from '../src/tools/options.js';
+
+const ALL_REGISTRARS = [
+  registerHealthTools, registerChartTools, registerPineTools, registerDataTools,
+  registerCaptureTools, registerDrawingTools, registerAlertTools, registerBatchTools,
+  registerReplayTools, registerIndicatorTools, registerWatchlistTools, registerUiTools,
+  registerPaneTools, registerTabTools, registerNewsTools, registerOptionsTools,
+];
+
+/** Mock that collects every tool name passed to .tool(). */
+function makeCollector() {
+  const names = [];
+  const mock = {
+    tool(name, ...rest) {
+      names.push(name);
+      // mimic the real RegisteredTool return shape minimally
+      return { name };
+    },
+  };
+  return { mock, names };
+}
+
+/** Collect all names registered across all 16 registrars on a given target. */
+function registerAll(target) {
+  for (const reg of ALL_REGISTRARS) reg(target);
+}
+
+describe('EXTENDED_TOOLS', () => {
+  it('contains exactly 45 tool names', () => {
+    assert.equal(EXTENDED_TOOLS.size, 45);
+  });
+});
+
+describe('full tool surface', () => {
+  it('all 16 registrars register exactly 88 unique tool names', () => {
+    const { mock, names } = makeCollector();
+    registerAll(mock);
+    assert.equal(names.length, 88, `expected 88 .tool() calls, got ${names.length}`);
+    const unique = new Set(names);
+    assert.equal(unique.size, 88, `expected 88 unique names, got ${unique.size} (duplicate registration?)`);
+  });
+
+  it('every EXTENDED_TOOLS name exists in the registered surface (catches typos)', () => {
+    const { mock, names } = makeCollector();
+    registerAll(mock);
+    const all = new Set(names);
+    for (const name of EXTENDED_TOOLS) {
+      assert.ok(all.has(name), `EXTENDED_TOOLS lists "${name}" but no registrar registers it`);
+    }
+  });
+});
+
+describe('default-mode registrar proxy', () => {
+  it('registers exactly 43 tools (88 - 45 gated)', () => {
+    const { mock: server, names } = makeCollector();
+    // Proxy mirrors src/server.js default-mode behavior.
+    const registrar = {
+      tool(name, ...rest) {
+        return EXTENDED_TOOLS.has(name) ? undefined : server.tool(name, ...rest);
+      },
+    };
+    registerAll(registrar);
+    assert.equal(names.length, 43, `expected 43 registered tools, got ${names.length}`);
+    // none of the gated tools leaked through
+    for (const name of names) {
+      assert.ok(!EXTENDED_TOOLS.has(name), `gated tool "${name}" leaked into default surface`);
+    }
+  });
+
+  it('returns undefined for a gated tool and passes through non-gated', () => {
+    const { mock: server } = makeCollector();
+    const registrar = {
+      tool(name, ...rest) {
+        return EXTENDED_TOOLS.has(name) ? undefined : server.tool(name, ...rest);
+      },
+    };
+    assert.equal(registrar.tool('pine_get_source', () => {}), undefined);
+    const kept = registrar.tool('chart_set_symbol', () => {});
+    assert.ok(kept && kept.name === 'chart_set_symbol');
+  });
+});
+
+describe('extended-mode registrar', () => {
+  it('passthrough server registers all 88 tools', () => {
+    const { mock: server, names } = makeCollector();
+    // extended mode passes `server` straight through (registrar === server)
+    registerAll(server);
+    assert.equal(names.length, 88, `expected 88 registered tools, got ${names.length}`);
+  });
+});

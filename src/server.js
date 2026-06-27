@@ -16,16 +16,52 @@ import { registerPaneTools } from './tools/pane.js';
 import { registerTabTools } from './tools/tab.js';
 import { registerNewsTools } from './tools/news.js';
 import { registerOptionsTools } from './tools/options.js';
+import { EXTENDED_TOOLS } from './tools/_groups.js';
 import { startDiagnostics } from './core/diagnostics.js';
 
-const server = new McpServer(
-  {
-    name: 'tradingview',
-    version: '2.0.0',
-    description: 'AI-assisted TradingView chart analysis and Pine Script development via Chrome DevTools Protocol',
-  },
-  {
-    instructions: `TradingView MCP — 81 tools for reading and controlling a live TradingView Desktop chart.
+const tvMcpExtended = process.env.TV_MCP_EXTENDED;
+if (tvMcpExtended !== undefined && tvMcpExtended !== '1' && tvMcpExtended !== '0' && tvMcpExtended !== '') {
+  process.stderr.write(`⚠  TV_MCP_EXTENDED="${tvMcpExtended}" is not recognized. Valid: "1" to enable extended mode. Defaulting to read-only.\n`);
+}
+const extendedMode = tvMcpExtended === '1';
+const toolCount = extendedMode ? 88 : (88 - EXTENDED_TOOLS.size); // 43 or 88
+
+const defaultInstructions = `TradingView MCP — ${toolCount} tools for reading and controlling a live TradingView Desktop chart.
+
+TOOL SELECTION GUIDE — use this to pick the right tool:
+
+Reading your chart:
+- chart_get_state → get symbol, timeframe, all indicator names + entity IDs (call first)
+- data_get_study_values → get current numeric values from ALL visible indicators (RSI, MACD, BB, EMA, etc.)
+- quote_get → get real-time price snapshot (last, OHLC, volume)
+- data_get_ohlcv → get price bars. ALWAYS pass summary=true unless you need individual bars
+
+Reading custom Pine indicator output (line.new/label.new/table.new/box.new drawings):
+- data_get_pine_lines → horizontal price levels from custom indicators (deduplicated, sorted)
+- data_get_pine_labels → text annotations with prices ("PDH 24550", "Bias Long", etc.)
+- data_get_pine_tables → table data as formatted rows (session stats, analytics dashboards)
+- data_get_pine_boxes → price zones as {high, low} pairs
+- ALWAYS pass study_filter to target a specific indicator by name (e.g., study_filter="Profiler")
+- Indicators must be VISIBLE on chart for these to work
+
+Changing the chart:
+- chart_set_symbol, chart_set_timeframe, chart_set_type → change ticker/resolution/style
+- chart_manage_indicator → add/remove studies. USE FULL NAMES: "Relative Strength Index" not "RSI"
+- chart_scroll_to_date → jump to a date (ISO format)
+
+Screenshots: capture_screenshot → regions: "full", "chart", "strategy_tester"
+Launch: tv_launch → auto-detect and start TradingView with CDP on any platform
+
+CONTEXT MANAGEMENT:
+- ALWAYS use summary=true on data_get_ohlcv
+- ALWAYS use study_filter on pine tools when you know which indicator you want
+- NEVER use verbose=true unless user specifically asks for raw data
+- Prefer capture_screenshot for visual context over pulling large datasets
+- Call chart_get_state ONCE at start, reuse entity IDs
+
+Run with TV_MCP_EXTENDED=1 to unlock Pine Script, replay, drawing, alerts, UI automation, and batch tools (88 total).`;
+
+const extendedInstructions = `TradingView MCP — ${toolCount} tools for reading and controlling a live TradingView Desktop chart.
 
 TOOL SELECTION GUIDE — use this to pick the right tool:
 
@@ -68,27 +104,43 @@ CONTEXT MANAGEMENT:
 - ALWAYS use study_filter on pine tools when you know which indicator you want
 - NEVER use verbose=true unless user specifically asks for raw data
 - Prefer capture_screenshot for visual context over pulling large datasets
-- Call chart_get_state ONCE at start, reuse entity IDs`,
+- Call chart_get_state ONCE at start, reuse entity IDs`;
+
+const server = new McpServer(
+  {
+    name: 'tradingview',
+    version: '2.0.0',
+    description: 'AI-assisted TradingView chart analysis and Pine Script development via Chrome DevTools Protocol',
+  },
+  {
+    instructions: extendedMode ? extendedInstructions : defaultInstructions,
   }
 );
 
-// Register all tool groups
-registerHealthTools(server);
-registerChartTools(server);
-registerPineTools(server);
-registerDataTools(server);
-registerCaptureTools(server);
-registerDrawingTools(server);
-registerAlertTools(server);
-registerBatchTools(server);
-registerReplayTools(server);
-registerIndicatorTools(server);
-registerWatchlistTools(server);
-registerUiTools(server);
-registerPaneTools(server);
-registerTabTools(server);
-registerNewsTools(server);
-registerOptionsTools(server);
+// In extended mode, register everything. In default mode, gate EXTENDED_TOOLS out.
+const registrar = extendedMode ? server : {
+  tool(name, ...rest) {
+    return EXTENDED_TOOLS.has(name) ? undefined : server.tool(name, ...rest);
+  },
+};
+
+// Register all tool groups (registrar gates EXTENDED_TOOLS out in default mode)
+registerHealthTools(registrar);
+registerChartTools(registrar);
+registerPineTools(registrar);
+registerDataTools(registrar);
+registerCaptureTools(registrar);
+registerDrawingTools(registrar);
+registerAlertTools(registrar);
+registerBatchTools(registrar);
+registerReplayTools(registrar);
+registerIndicatorTools(registrar);
+registerWatchlistTools(registrar);
+registerUiTools(registrar);
+registerPaneTools(registrar);
+registerTabTools(registrar);
+registerNewsTools(registrar);
+registerOptionsTools(registrar);
 startDiagnostics();
 
 // Startup notice (stderr so it doesn't interfere with MCP stdio protocol)

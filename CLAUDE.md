@@ -295,6 +295,9 @@ Opt-in env flags (set before starting the MCP server):
 ```bash
 TV_MCP_NETWORK=1 npm start          # enable Network responses/failures for chart/datafeed URLs
 TV_MCP_NETWORK=1 TV_MCP_WS_FRAMES=1 npm start   # also capture WebSocket frames
+TV_MCP_EXTENDED=1 npm start         # expose all 88 tools (default: 43 chart+data tools)
 ```
+
+The CLI (`npm run tv -- <cmd>`) is unaffected by `TV_MCP_EXTENDED` — all commands are always available. The flag only gates which tools the MCP server advertises over stdio. An unrecognized value (e.g. `TV_MCP_EXTENDED=foo`) prints a stderr warning and falls back to the default 43-tool mode.
 
 Event types in the buffer: `session_start`, `console`, `exception`, `log`, `network_response`, `network_failed`, `ws_frame`.
