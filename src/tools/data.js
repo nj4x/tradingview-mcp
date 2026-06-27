@@ -79,6 +79,15 @@ export function registerDataTools(server) {
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
   });
 
+  server.tool('data_get_pine_graphics', 'Read all Pine Script graphics (lines, labels, tables, boxes) in ONE call — batches the four data_get_pine_* tools into a single chart query. Use include to narrow, study_filter to target an indicator.', {
+    include: z.array(z.enum(['lines', 'labels', 'tables', 'boxes'])).optional().describe('Which graphics to read. Default: all four.'),
+    study_filter: z.string().optional().describe('Substring to match study name (e.g., "Profiler"). Omit for all.'),
+    max_labels: z.coerce.number().optional().describe('Max labels per study (default 50).'),
+  }, async ({ include, study_filter, max_labels }) => {
+    try { return jsonResult(await core.getPineGraphics({ include, study_filter, max_labels })); }
+    catch (err) { return jsonResult({ success: false, error: err.message }, true); }
+  });
+
   server.tool('data_get_study_values', 'Get current indicator values from the data window for all visible studies (RSI, MACD, Bollinger Bands, EMAs, custom indicators with plot()).', {}, async () => {
     try { return jsonResult(await core.getStudyValues()); }
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }

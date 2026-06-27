@@ -66,6 +66,160 @@ function buildGraphicsJS(collectionName, mapKey, filter) {
   `;
 }
 
+function buildAllGraphicsJS(collections, filter) {
+  return `
+    (function() {
+      var chart = window.TradingViewApi._activeChartWidgetWV.value()._chartWidget;
+      var model = chart.model();
+      var sources = model.model().dataSources();
+      var filter = ${safeString(filter || '')};
+      var collections = ${JSON.stringify(collections)};
+      var results = {};
+      for (var ci = 0; ci < collections.length; ci++) results[collections[ci].name] = [];
+      for (var si = 0; si < sources.length; si++) {
+        var s = sources[si];
+        if (!s.metaInfo) continue;
+        try {
+          var meta = s.metaInfo();
+          var name = meta.description || meta.shortDescription || '';
+          if (!name) continue;
+          if (filter && name.indexOf(filter) === -1) continue;
+          var g = s._graphics;
+          if (!g || !g._primitivesCollection) continue;
+          var pc = g._primitivesCollection;
+          for (var ci = 0; ci < collections.length; ci++) {
+            var spec = collections[ci];
+            var items = [];
+            try {
+              var outer = pc[spec.collection];
+              if (outer) {
+                var inner = outer.get(spec.mapKey);
+                if (inner) {
+                  var coll = inner.get(false);
+                  if (coll && coll._primitivesDataById && coll._primitivesDataById.size > 0) {
+                    coll._primitivesDataById.forEach(function(v, id) { items.push({id: id, raw: v}); });
+                  }
+                }
+              }
+            } catch(e) {}
+            if (items.length === 0 && spec.collection === 'dwgtablecells') {
+              try {
+                var tcOuter = pc.dwgtablecells;
+                if (tcOuter) {
+                  var tcColl = tcOuter.get('tableCells');
+                  if (tcColl && tcColl._primitivesDataById && tcColl._primitivesDataById.size > 0) {
+                    tcColl._primitivesDataById.forEach(function(v, id) { items.push({id: id, raw: v}); });
+                  }
+                }
+              } catch(e) {}
+            }
+            if (items.length > 0) results[spec.name].push({name: name, count: items.length, items: items});
+          }
+        } catch(e) {}
+      }
+      return results;
+    })()
+  `;
+}
+
+function formatLines(raw, verbose) {
+  return (raw || []).map(s => {
+    const hLevels = [];
+    const seen = {};
+    const allLines = [];
+    for (const item of s.items) {
+      const v = item.raw;
+      const y1 = v.y1 != null ? Math.round(v.y1 * 100) / 100 : null;
+      const y2 = v.y2 != null ? Math.round(v.y2 * 100) / 100 : null;
+      if (verbose) allLines.push({ id: item.id, y1, y2, x1: v.x1, x2: v.x2, horizontal: v.y1 === v.y2, style: v.st, width: v.w, color: v.ci });
+      if (y1 != null && v.y1 === v.y2 && !seen[y1]) { hLevels.push(y1); seen[y1] = true; }
+    }
+    hLevels.sort((a, b) => b - a);
+    const result = { name: s.name, total_lines: s.count, horizontal_levels: hLevels };
+    if (verbose) result.all_lines = allLines;
+    return result;
+  });
+}
+
+function formatLabels(raw, max_labels, verbose) {
+  const limit = max_labels || 50;
+  return (raw || []).map(s => {
+    let labels = s.items.map(item => {
+      const v = item.raw;
+      const text = v.t || '';
+      const price = v.y != null ? Math.round(v.y * 100) / 100 : null;
+      if (verbose) return { id: item.id, text, price, x: v.x, yloc: v.yl, size: v.sz, textColor: v.tci, color: v.ci };
+      return { text, price };
+    }).filter(l => l.text || l.price != null);
+    if (labels.length > limit) labels = labels.slice(-limit);
+    return { name: s.name, total_labels: s.count, showing: labels.length, labels };
+  });
+}
+
+function formatTables(raw) {
+  return (raw || []).map(s => {
+    const tables = {};
+    for (const item of s.items) {
+      const v = item.raw;
+      const tid = v.tid || 0;
+      if (!tables[tid]) tables[tid] = {};
+      if (!tables[tid][v.row]) tables[tid][v.row] = {};
+      tables[tid][v.row][v.col] = v.t || '';
+    }
+    const tableList = Object.entries(tables).map(([tid, rows]) => {
+      const rowNums = Object.keys(rows).map(Number).sort((a, b) => a - b);
+      const formatted = rowNums.map(rn => {
+        const cols = rows[rn];
+        const colNums = Object.keys(cols).map(Number).sort((a, b) => a - b);
+        return colNums.map(cn => cols[cn]).filter(Boolean).join(' | ');
+      }).filter(Boolean);
+      return { rows: formatted };
+    });
+    return { name: s.name, tables: tableList };
+  });
+}
+
+function formatBoxes(raw, verbose) {
+  return (raw || []).map(s => {
+    const zones = [];
+    const seen = {};
+    const allBoxes = [];
+    for (const item of s.items) {
+      const v = item.raw;
+      const high = v.y1 != null && v.y2 != null ? Math.round(Math.max(v.y1, v.y2) * 100) / 100 : null;
+      const low = v.y1 != null && v.y2 != null ? Math.round(Math.min(v.y1, v.y2) * 100) / 100 : null;
+      if (verbose) allBoxes.push({ id: item.id, high, low, x1: v.x1, x2: v.x2, borderColor: v.c, bgColor: v.bc });
+      if (high != null && low != null) { const key = high + ':' + low; if (!seen[key]) { zones.push({ high, low }); seen[key] = true; } }
+    }
+    zones.sort((a, b) => b.high - a.high);
+    const result = { name: s.name, total_boxes: s.count, zones };
+    if (verbose) result.all_boxes = allBoxes;
+    return result;
+  });
+}
+
+const GRAPHICS_SPECS = {
+  lines: { name: 'lines', collection: 'dwglines', mapKey: 'lines' },
+  labels: { name: 'labels', collection: 'dwglabels', mapKey: 'labels' },
+  tables: { name: 'tables', collection: 'dwgtablecells', mapKey: 'tableCells' },
+  boxes: { name: 'boxes', collection: 'dwgboxes', mapKey: 'boxes' },
+};
+
+export async function getPineGraphics({ include, study_filter, max_labels, verbose, _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
+  const sel = (Array.isArray(include) && include.length > 0) ? include : ['lines', 'labels', 'tables', 'boxes'];
+  const specs = sel.filter(k => GRAPHICS_SPECS[k]).map(k => GRAPHICS_SPECS[k]);
+  const filter = study_filter || '';
+  const raw = await evaluate(buildAllGraphicsJS(specs, filter)) || {};
+
+  const out = { success: true, study_counts: {} };
+  if (sel.includes('lines')) { const f = formatLines(raw.lines, verbose); out.lines = f; out.study_counts.lines = f.length; }
+  if (sel.includes('labels')) { const f = formatLabels(raw.labels, max_labels, verbose); out.labels = f; out.study_counts.labels = f.length; }
+  if (sel.includes('tables')) { const f = formatTables(raw.tables); out.tables = f; out.study_counts.tables = f.length; }
+  if (sel.includes('boxes')) { const f = formatBoxes(raw.boxes, verbose); out.boxes = f; out.study_counts.boxes = f.length; }
+  return out;
+}
+
 export async function getOhlcv({ count, summary, _deps } = {}) {
   const { evaluate } = _resolve(_deps);
   const limit = Math.min(count || 100, MAX_OHLCV_BARS);
@@ -283,11 +437,34 @@ export async function getQuote({ symbol, _deps } = {}) {
       if (ext.description) quote.description = ext.description;
       if (ext.exchange) quote.exchange = ext.exchange;
       if (ext.type) quote.type = ext.type;
+      quote._ext = {
+        type: ext.type,
+        typespecs: ext.typespecs,
+        option_type: ext['option-type'],
+        strike: ext.strike,
+        expiration: ext.expiration,
+        exercise_style: ext['exercise-style'],
+        shares_per_contract: ext['shares-per-contract'] != null ? ext['shares-per-contract'] : ext.pointvalue,
+        underlying: ext['underlying-symbol'] || ext.root || ext['root-symbol'],
+      };
       return quote;
     })()
   `);
   if (!data || (!data.last && !data.close)) throw new Error('Could not retrieve quote. The chart may still be loading.');
-  return { success: true, ...data };
+  const ext = data._ext || {};
+  delete data._ext;
+  const result = { success: true, ...data };
+  const specs = Array.isArray(ext.typespecs) ? ext.typespecs : [];
+  const isOption = ext.type === 'option' || specs.includes('option') || specs.includes('options') || ext.strike != null || ext.option_type != null;
+  if (isOption) {
+    if (ext.strike != null) result.strike_price = ext.strike;
+    if (ext.expiration != null) result.expiration_date = ext.expiration;
+    if (ext.option_type != null) result.contract_type = ext.option_type;
+    if (ext.exercise_style != null) result.exercise_style = ext.exercise_style;
+    if (ext.shares_per_contract != null) result.shares_per_contract = ext.shares_per_contract;
+    if (ext.underlying != null) result.underlying_ticker = ext.underlying;
+  }
+  return result;
 }
 
 export async function getDepth({ _deps } = {}) {

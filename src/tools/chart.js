@@ -66,7 +66,7 @@ export function registerChartTools(server) {
 
   server.tool('symbol_search', 'Search for symbols by name or keyword', {
     query: z.string().describe('Search query (e.g., "AAPL", "crude oil", "ES")'),
-    type: z.string().optional().describe('Filter by type (e.g., "stock", "futures", "crypto", "forex")'),
+    type: z.string().optional().describe('Filter by type (e.g., "stock", "futures", "crypto", "forex", "option")'),
   }, async ({ query, type }) => {
     try { return jsonResult(await core.symbolSearch({ query, type })); }
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
@@ -76,6 +76,16 @@ export function registerChartTools(server) {
     query: z.string().describe('Search query (e.g., "AAPL", "crude oil", "ES")'),
   }, async ({ query }) => {
     try { return jsonResult(await core.symbolSearchLive({ query })); }
+    catch (err) { return jsonResult({ success: false, error: err.message }, true); }
+  });
+
+  server.tool('chart_report', 'Full chart analysis in one call — batches state, study values, quote, pine graphics, OHLCV summary, and an optional screenshot. Defaults to state+study_values+quote (cheap). Add expensive sections explicitly via include. Per-section error isolation; response capped at 50KB.', {
+    include: z.array(z.enum(['state', 'study_values', 'pine_lines', 'pine_labels', 'pine_tables', 'pine_boxes', 'quote', 'ohlcv', 'screenshot'])).optional().describe('Sections to include. Default: ["state","study_values","quote"]. ohlcv and screenshot are expensive — add only when needed.'),
+    study_filter: z.string().optional().describe('Substring to match study name for pine_* sections.'),
+    ohlcv_count: z.coerce.number().optional().describe('Bars for the ohlcv section (summary stats, default 100).'),
+    screenshot_region: z.enum(['full', 'chart', 'strategy_tester']).optional().describe('Region for the screenshot section (default "chart").'),
+  }, async ({ include, study_filter, ohlcv_count, screenshot_region }) => {
+    try { return jsonResult(await core.analyzeChart({ include, study_filter, ohlcv_count, screenshot_region })); }
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
   });
 }

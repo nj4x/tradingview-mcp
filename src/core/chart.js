@@ -3,6 +3,8 @@
  */
 import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, safeString, requireFinite } from '../connection.js';
 import { waitForChartReady as _waitForChartReady } from '../wait.js';
+import { getStudyValues, getPineGraphics, getQuote, getOhlcv } from './data.js';
+import { captureScreenshot as _captureScreenshot } from './capture.js';
 
 const CHART_API = 'window.TradingViewApi._activeChartWidgetWV.value()';
 
@@ -238,6 +240,79 @@ export async function symbolSearch({ query, type }) {
   }));
 
   return { success: true, query, source: 'rest_api', results, count: results.length };
+}
+
+const REPORT_SECTIONS = ['state', 'study_values', 'pine_lines', 'pine_labels', 'pine_tables', 'pine_boxes', 'quote', 'ohlcv', 'screenshot'];
+const DEFAULT_REPORT_INCLUDE = ['state', 'study_values', 'quote'];
+const REPORT_MAX_BYTES = 50 * 1024;
+const PINE_SECTIONS = { pine_lines: 'lines', pine_labels: 'labels', pine_tables: 'tables', pine_boxes: 'boxes' };
+
+export async function analyzeChart({ include, study_filter, ohlcv_count, screenshot_region, _deps } = {}) {
+  const { evaluate, evaluateAsync } = _resolve(_deps);
+  const deps = { evaluate, evaluateAsync };
+  const sel = (Array.isArray(include) && include.length > 0)
+    ? include.filter(s => REPORT_SECTIONS.includes(s))
+    : DEFAULT_REPORT_INCLUDE.slice();
+  const want = s => sel.includes(s);
+
+  const result = { success: true };
+  const run = async (key, fn) => {
+    try { result[key] = await fn(); }
+    catch (err) { result[key] = { error: err.message }; }
+  };
+
+  const pineWanted = Object.keys(PINE_SECTIONS).filter(want);
+  const tasks = [];
+
+  if (want('state')) tasks.push(run('state', () => getState({ _deps: deps })));
+  if (want('quote')) tasks.push(run('quote', () => getQuote({ _deps: deps })));
+  if (want('study_values')) tasks.push(run('study_values', () => getStudyValues({ _deps: deps })));
+  if (want('ohlcv')) tasks.push(run('ohlcv', () => getOhlcv({ count: ohlcv_count, summary: true, _deps: deps })));
+  if (pineWanted.length > 0) {
+    tasks.push((async () => {
+      try {
+        const g = await getPineGraphics({ include: pineWanted.map(k => PINE_SECTIONS[k]), study_filter, _deps: deps });
+        for (const k of pineWanted) result[k] = g[PINE_SECTIONS[k]] ?? [];
+      } catch (err) {
+        for (const k of pineWanted) result[k] = { error: err.message };
+      }
+    })());
+  }
+
+  await Promise.all(tasks);
+
+  if (want('screenshot')) {
+    const capture = _deps?.captureScreenshot || _captureScreenshot;
+    try {
+      const shot = await capture({ region: screenshot_region || 'chart' });
+      result.screenshot_path = shot.file_path || null;
+    } catch (err) {
+      result.screenshot_path = null;
+      result.screenshot = { error: err.message };
+    }
+  }
+
+  _capReport(result, sel);
+  return result;
+}
+
+function _capReport(result, sel) {
+  const sizeOf = () => Buffer.byteLength(JSON.stringify(result), 'utf8');
+  if (sizeOf() <= REPORT_MAX_BYTES) return;
+  const dataKeys = Object.keys(result).filter(k => k !== 'success' && k !== 'truncated');
+  const ordered = dataKeys.sort((a, b) => {
+    const ai = sel.includes(a) ? 0 : 1;
+    const bi = sel.includes(b) ? 0 : 1;
+    if (ai !== bi) return ai - bi;
+    return a.localeCompare(b);
+  });
+  const truncated = [];
+  for (const k of ordered) {
+    if (sizeOf() <= REPORT_MAX_BYTES) break;
+    delete result[k];
+    truncated.push(k);
+  }
+  if (truncated.length > 0) result.truncated = truncated;
 }
 
 export async function symbolSearchLive({ query, _deps } = {}) {
