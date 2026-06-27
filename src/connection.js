@@ -1,6 +1,13 @@
 import CDP from 'chrome-remote-interface';
 
 let client = null;
+let _diagnosticsSink = null;
+
+export function setDiagnosticsSink(fn) {
+  _diagnosticsSink = fn;
+  if (client && fn) fn(client);
+}
+
 let targetInfo = null;
 const CDP_HOST = 'localhost';
 const CDP_PORT = 9222;
@@ -61,6 +68,11 @@ export async function getClient() {
   return connect();
 }
 
+async function enableSafe(c, domain) {
+  if (!c[domain]) return;
+  try { await c[domain].enable(); } catch (_) {}
+}
+
 export async function connect() {
   let lastError;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -76,6 +88,12 @@ export async function connect() {
       await client.Runtime.enable();
       await client.Page.enable();
       await client.DOM.enable();
+      await enableSafe(client, 'Log');
+      if (process.env.TV_MCP_NETWORK === '1') {
+        await enableSafe(client, 'Network');
+      }
+
+      if (_diagnosticsSink) _diagnosticsSink(client);
 
       return client;
     } catch (err) {
