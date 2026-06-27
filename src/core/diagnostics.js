@@ -67,19 +67,20 @@ function attachListeners(client) {
 
 export function startDiagnostics(_deps = {}) {
   const now = _deps.now ?? (() => Date.now());
-  const appendLine = _deps.appendLine ?? ((line) => {
-    fs.promises.appendFile(sessionFile, line + '\n').catch(() => {});
-  });
-
-  fs.mkdirSync(LOG_DIR, { recursive: true });
-
   const ts = now();
-  const isoTs = new Date(ts).toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
-  let sessionFile = path.join(LOG_DIR, `session_${isoTs}.jsonl`);
 
-  const current = path.join(LOG_DIR, 'current');
-  try { fs.unlinkSync(current); } catch (_) {}
-  fs.symlinkSync(sessionFile, current);
+  let appendLine;
+  if (_deps.appendLine) {
+    appendLine = _deps.appendLine;
+  } else {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    const isoTs = new Date(ts).toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+    const sessionFile = path.join(LOG_DIR, `session_${isoTs}.jsonl`);
+    const current = path.join(LOG_DIR, 'current');
+    try { fs.unlinkSync(current); } catch (_) {}
+    fs.symlinkSync(sessionFile, current);
+    appendLine = (line) => fs.promises.appendFile(sessionFile, line + '\n').catch(() => {});
+  }
 
   _appendLineFn = appendLine;
   ring = [];

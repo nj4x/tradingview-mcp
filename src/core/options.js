@@ -164,7 +164,7 @@ export async function searchContracts({
     });
     if (resp && resp.ok) {
       const data = await resp.json();
-      raw = data.symbols || data.symbols_remaining || (Array.isArray(data) ? data : []) || [];
+      raw = data.symbols || (Array.isArray(data) ? data : []);
     }
   } catch {
     raw = [];

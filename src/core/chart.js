@@ -433,6 +433,7 @@ export async function getMarketStatus({ _deps } = {}) {
     session: info.session,
     session_display: info.session_display || null,
     timezone: info.timezone || null,
+    is_tradable: info.is_tradable ?? null,
   };
 }
 

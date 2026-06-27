@@ -228,6 +228,23 @@ describe('getMarketStatus() — market_status', () => {
     assert.equal(res.status, 'open');
   });
 
+  it('includes is_tradable from the renderer payload', async () => {
+    const res = await getMarketStatus({ _deps: { evaluate: async () => ({
+      symbol: 'AAPL', exchange: 'NASDAQ', session: '0930-1600',
+      subsession_id: 'regular', timezone: 'America/New_York', is_tradable: true,
+    }) } });
+    assert.equal(res.success, true);
+    assert.equal(res.is_tradable, true);
+  });
+
+  it('returns is_tradable: null when the renderer omits it', async () => {
+    const res = await getMarketStatus({ _deps: { evaluate: async () => ({
+      symbol: 'X', session: '0900-1700', subsession_id: 'regular',
+    }) } });
+    assert.equal(res.success, true);
+    assert.equal(res.is_tradable, null);
+  });
+
   it('falls back to error when session data is unavailable', async () => {
     const res = await getMarketStatus({ _deps: { evaluate: async () => null } });
     assert.equal(res.success, false);
