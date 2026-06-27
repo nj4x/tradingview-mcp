@@ -622,6 +622,48 @@ export async function openScript({ name, _deps, _internal }) {
   return { success: true, name: result.name, script_id: result.id, lines: result.lines, source: 'internal_api', opened: true };
 }
 
+/**
+ * Deploy a Pine script end-to-end: open the editor once, set source, compile,
+ * read errors + console, and optionally save.
+ *
+ * The editor is opened exactly once here (via ensurePineEditorOpen). Every
+ * downstream sub-call is passed `_internal: { skipEnsureEditor: true }` so it
+ * does not re-open the editor — the single open at the top covers them all.
+ */
+export async function deploy({ source, save_name, _deps } = {}) {
+  const { evaluate, evaluateAsync } = _resolve(_deps);
+  const deps = { evaluate, evaluateAsync };
+  if (source === undefined || source === null) throw new Error('source is required');
+
+  const editorReady = await ensurePineEditorOpen(evaluate);
+  if (!editorReady) throw new Error('Could not open Pine Editor or Monaco not found.');
+
+  const skip = { _deps: deps, _internal: { skipEnsureEditor: true } };
+
+  await setSource({ source, ...skip });
+  await compile(skip);
+  const errResult = await getErrors(skip);
+  const consoleResult = await getConsole(skip);
+
+  let saved = false;
+  if (save_name !== undefined && save_name !== null && String(save_name).trim() !== '') {
+    await save(skip);
+    saved = true;
+  }
+
+  const errors = errResult?.errors || [];
+  const compiled = !(errResult?.has_errors);
+
+  return {
+    success: true,
+    compiled,
+    errors,
+    error_count: errors.length,
+    console_output: consoleResult?.entries || [],
+    saved,
+  };
+}
+
 export async function listScripts() {
   const scripts = await _evaluateAsync(`
     fetch('https://pine-facade.tradingview.com/pine-facade/list/?filter=saved', { credentials: 'include' })

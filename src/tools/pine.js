@@ -72,4 +72,12 @@ export function registerPineTools(server) {
     try { return jsonResult(await core.check({ source })); }
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
   });
+
+  server.tool('pine_deploy', 'Deploy a Pine script end-to-end in one call: opens the editor, sets source, compiles, reads errors + console output, and optionally saves. Returns the merged result.', {
+    source: z.string().describe('Pine Script source code to deploy'),
+    save_name: z.string().optional().describe('If provided, save the script after compiling (triggers the save flow).'),
+  }, async ({ source, save_name }) => {
+    try { return jsonResult(await core.deploy({ source, save_name })); }
+    catch (err) { return jsonResult({ success: false, error: err.message }, true); }
+  });
 }

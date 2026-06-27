@@ -44,9 +44,9 @@ export function registerChartTools(server) {
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
   });
 
-  server.tool('chart_set_visible_range', 'Zoom the chart to a specific date range (unix timestamps)', {
-    from: z.coerce.number().describe('Start of range (unix timestamp in seconds)'),
-    to: z.coerce.number().describe('End of range (unix timestamp in seconds)'),
+  server.tool('chart_set_visible_range', 'Zoom the chart to a specific date range. Accepts unix timestamps (seconds) or ISO date strings like "2025-01-15".', {
+    from: z.union([z.coerce.number(), z.string()]).describe('Start of range — unix timestamp (seconds) or ISO date string (e.g., "2025-01-15")'),
+    to: z.union([z.coerce.number(), z.string()]).describe('End of range — unix timestamp (seconds) or ISO date string (e.g., "2025-01-20")'),
   }, async ({ from, to }) => {
     try { return jsonResult(await core.setVisibleRange({ from, to })); }
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
@@ -86,6 +86,21 @@ export function registerChartTools(server) {
     screenshot_region: z.enum(['full', 'chart', 'strategy_tester']).optional().describe('Region for the screenshot section (default "chart").'),
   }, async ({ include, study_filter, ohlcv_count, screenshot_region }) => {
     try { return jsonResult(await core.analyzeChart({ include, study_filter, ohlcv_count, screenshot_region })); }
+    catch (err) { return jsonResult({ success: false, error: err.message }, true); }
+  });
+
+  server.tool('chart_fetch_ohlcv', 'Fetch OHLCV for any symbol+timeframe in one call. Switches the chart to the requested symbol/timeframe (skipping the switch if already there), then returns bars. NOTE: this mutates the chart and does NOT restore the previous symbol/timeframe.', {
+    symbol: z.string().describe('Symbol to fetch (e.g., "AAPL", "ES1!", "NYMEX:CL1!")'),
+    timeframe: z.string().optional().describe('Timeframe/resolution (e.g., "1", "5", "60", "D", "W"). Omit to keep the current timeframe.'),
+    count: z.coerce.number().optional().describe('Number of bars (default 100, capped at 500)'),
+    summary: z.boolean().optional().describe('Return compact summary stats instead of all bars (recommended)'),
+  }, async ({ symbol, timeframe, count, summary }) => {
+    try { return jsonResult(await core.fetchOhlcv({ symbol, timeframe, count, summary })); }
+    catch (err) { return jsonResult({ success: false, error: err.message }, true); }
+  });
+
+  server.tool('market_status', 'Get the current market session status for the chart symbol (open / closed / pre_market / post_market) plus session metadata.', {}, async () => {
+    try { return jsonResult(await core.getMarketStatus()); }
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
   });
 }

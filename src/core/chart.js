@@ -5,6 +5,7 @@ import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, safeString, req
 import { waitForChartReady as _waitForChartReady } from '../wait.js';
 import { getStudyValues, getPineGraphics, getQuote, getOhlcv } from './data.js';
 import { captureScreenshot as _captureScreenshot } from './capture.js';
+import { isoToUnix } from './utils.js';
 
 const CHART_API = 'window.TradingViewApi._activeChartWidgetWV.value()';
 
@@ -129,8 +130,9 @@ export async function getVisibleRange() {
 
 export async function setVisibleRange({ from, to, _deps }) {
   const { evaluate } = _resolve(_deps);
-  const f = requireFinite(from, 'from');
-  const t = requireFinite(to, 'to');
+  // Accept ISO-8601 strings (e.g. "2025-01-15") alongside unix timestamps.
+  const f = requireFinite(isoToUnix(from), 'from');
+  const t = requireFinite(isoToUnix(to), 'to');
   await evaluate(`
     (function() {
       var chart = ${CHART_API};
@@ -159,10 +161,10 @@ export async function setVisibleRange({ from, to, _deps }) {
   return { success: true, requested: { from, to }, actual: actual || { from: 0, to: 0 } };
 }
 
-export async function scrollToDate({ date }) {
-  let timestamp;
-  if (/^\d+$/.test(date)) timestamp = Number(date);
-  else timestamp = Math.floor(new Date(date).getTime() / 1000);
+export async function scrollToDate({ date, _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
+  // Coerce ISO-8601 strings → unix seconds; numeric strings pass through unchanged.
+  const timestamp = isoToUnix(date);
   if (isNaN(timestamp)) throw new Error(`Could not parse date: ${date}. Use ISO format (2024-01-15) or unix timestamp.`);
 
   const resolution = await evaluate(`${CHART_API}.resolution()`);
@@ -337,4 +339,114 @@ export async function symbolSearchLive({ query, _deps } = {}) {
     currency_code: r.currency_code || '',
   }));
   return { success: true, query, source: 'searchSymbols', results, count: results.length };
+}
+
+// ── Phase 2 composites + ergonomics ──
+
+/**
+ * Fetch OHLCV for an arbitrary symbol/timeframe in one call.
+ * Mutates the chart intentionally (does NOT restore prior state — same as batch_run).
+ * Skips setSymbol/setTimeframe when the requested value already matches the chart,
+ * avoiding a redundant reload.
+ */
+export async function fetchOhlcv({ symbol, timeframe, count, summary, _deps } = {}) {
+  const { evaluate, evaluateAsync, waitForChartReady } = _resolve(_deps);
+  const deps = { evaluate, evaluateAsync, waitForChartReady };
+  if (!symbol || !String(symbol).trim()) throw new Error('symbol is required');
+
+  const current = await evaluate(`
+    (function() {
+      var chart = ${CHART_API};
+      return { symbol: chart.symbol(), resolution: chart.resolution() };
+    })()
+  `);
+
+  let symbol_changed = false;
+  let timeframe_changed = false;
+
+  if (symbol !== current?.symbol) {
+    await setSymbol({ symbol, _deps: deps });
+    symbol_changed = true;
+  }
+  if (timeframe !== undefined && timeframe !== null && String(timeframe) !== String(current?.resolution)) {
+    await setTimeframe({ timeframe, _deps: deps });
+    timeframe_changed = true;
+  }
+
+  const ohlcv = await getOhlcv({ count, summary, _deps: deps });
+
+  const resolved_timeframe = (timeframe !== undefined && timeframe !== null)
+    ? timeframe
+    : current?.resolution;
+  const bar_count = Array.isArray(ohlcv.bars) ? ohlcv.bars.length : (ohlcv.bar_count ?? null);
+
+  return {
+    success: true,
+    symbol,
+    timeframe: resolved_timeframe,
+    symbol_changed,
+    timeframe_changed,
+    bar_count,
+    ...ohlcv,
+  };
+}
+
+/**
+ * Read the current symbol's market session status (open/closed/pre/post-market).
+ * Reads chart.symbolExt() for the session descriptor TradingView exposes.
+ */
+export async function getMarketStatus({ _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
+  const info = await evaluate(`
+    (function() {
+      try {
+        var chart = ${CHART_API};
+        var ext = chart.symbolExt();
+        if (!ext) return null;
+        return {
+          symbol: ext.symbol,
+          exchange: ext.exchange,
+          session: ext.session,
+          session_display: ext.session_display,
+          subsession_id: ext.subsession_id,
+          subsessions: ext.subsessions,
+          timezone: ext.timezone,
+          is_tradable: typeof chart.isMarketAvailable === 'function' ? chart.isMarketAvailable() : undefined,
+        };
+      } catch (e) { return { __error: e.message }; }
+    })()
+  `);
+
+  if (!info || info.__error || info.session === undefined || info.session === null) {
+    return { success: false, error: 'session data unavailable' };
+  }
+
+  // TradingView's marketStatus, when present on the runtime, is the authoritative
+  // open/closed flag. We derive a best-effort status name from the session fields.
+  const status = _deriveSessionStatus(info);
+
+  return {
+    success: true,
+    status,
+    symbol: info.symbol,
+    exchange: info.exchange,
+    session: info.session,
+    session_display: info.session_display || null,
+    timezone: info.timezone || null,
+  };
+}
+
+/**
+ * Best-effort mapping of a symbolExt() descriptor to a coarse status name.
+ * The `session` field is a session-spec string (e.g. "0930-1600"), not a live state,
+ * so we map the active subsession id where available; otherwise return "unknown".
+ */
+function _deriveSessionStatus(info) {
+  const sid = String(info.subsession_id || '').toLowerCase();
+  if (sid.includes('pre')) return 'pre_market';
+  if (sid.includes('post') || sid.includes('after')) return 'post_market';
+  if (sid === 'regular' || sid.includes('regular')) return 'open';
+  // 24x7 sessions (crypto/forex) advertise a continuous session spec.
+  if (String(info.session || '') === '24x7') return 'open';
+  return 'unknown';
 }
