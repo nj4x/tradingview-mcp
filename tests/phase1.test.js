@@ -83,14 +83,9 @@ describe('getQuote() — options metadata extension', () => {
 
 describe('symbolSearch() — option search type forwarding', () => {
   it('puts search_type=option in the REST URL', async () => {
-    const original = global.fetch;
     let url = '';
-    global.fetch = async (u) => { url = u; return { ok: true, json: async () => ({ symbols: [] }) }; };
-    try {
-      await symbolSearch({ query: 'AAPL', type: 'option' });
-    } finally {
-      global.fetch = original;
-    }
+    const fetch = async (u) => { url = u; return { ok: true, json: async () => ({ symbols: [] }) }; };
+    await symbolSearch({ query: 'AAPL', type: 'option', _deps: { fetch } });
     assert.ok(url.includes('search_type=option'), `expected search_type=option in URL, got: ${url}`);
   });
 });

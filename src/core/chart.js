@@ -7,10 +7,11 @@ import { getStudyValues, getPineGraphics, getQuote, getOhlcv } from './data.js';
 import { captureScreenshot as _captureScreenshot } from './capture.js';
 import { isoToUnix } from './utils.js';
 import { makeResolver } from './_resolve.js';
+import { restFromNode } from './_rest.js';
 
 const CHART_API = 'window.TradingViewApi._activeChartWidgetWV.value()';
 
-const _resolve = makeResolver(['evaluate', 'evaluateAsync'], { waitForChartReady: _waitForChartReady });
+const _resolve = makeResolver(['evaluate', 'evaluateAsync'], { waitForChartReady: _waitForChartReady, fetch: globalThis.fetch });
 
 export async function getState({ _deps } = {}) {
   const { evaluate } = _resolve(_deps);
@@ -212,11 +213,12 @@ export async function symbolInfo({ symbol, _deps } = {}) {
       };
     })()
   `);
-  return { success: true, ...result };
+  return { success: true, ...result, source: 'cdp' };
 }
 
-export async function symbolSearch({ query, type }) {
+export async function symbolSearch({ query, type, _deps } = {}) {
   // Use TradingView's public symbol search REST API (works without auth)
+  const { fetch } = _resolve(_deps);
   const params = new URLSearchParams({
     text: query,
     hl: '1',
@@ -226,11 +228,10 @@ export async function symbolSearch({ query, type }) {
     domain: 'production',
   });
 
-  const resp = await fetch(`https://symbol-search.tradingview.com/symbol_search/v3/?${params}`, {
-    headers: { 'Origin': 'https://www.tradingview.com', 'Referer': 'https://www.tradingview.com/' },
+  const url = `https://symbol-search.tradingview.com/symbol_search/v3/?${params}`;
+  const data = await restFromNode(fetch, url, {
+    headers: { Origin: 'https://www.tradingview.com', Referer: 'https://www.tradingview.com/' },
   });
-  if (!resp.ok) throw new Error(`Symbol search API returned ${resp.status}`);
-  const data = await resp.json();
 
   const strip = s => (s || '').replace(/<\/?em>/g, '');
   const results = (data.symbols || data || []).slice(0, 15).map(r => ({
@@ -420,7 +421,7 @@ export async function getMarketStatus({ symbol, _deps } = {}) {
   `);
 
   if (!info || info.__error || info.session === undefined || info.session === null) {
-    return { success: false, error: 'session data unavailable' };
+    return { success: false, error: 'session data unavailable', source: 'cdp' };
   }
 
   // TradingView's marketStatus, when present on the runtime, is the authoritative
@@ -436,6 +437,7 @@ export async function getMarketStatus({ symbol, _deps } = {}) {
     session_display: info.session_display || null,
     timezone: info.timezone || null,
     is_tradable: info.is_tradable ?? null,
+    source: 'cdp',
   };
 }
 

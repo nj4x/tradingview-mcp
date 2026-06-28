@@ -5,6 +5,7 @@
  */
 import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, getClient } from '../connection.js';
 import { makeResolver } from './_resolve.js';
+import { restFromRenderer, assertRestEnabled } from './_rest.js';
 
 const _resolve = makeResolver(['evaluate', 'evaluateAsync']);
 
@@ -615,7 +616,7 @@ export async function openScript({ name, _deps, _internal }) {
     throw new Error(result.error);
   }
 
-  return { success: true, name: result.name, script_id: result.id, lines: result.lines, source: 'internal_api', opened: true };
+  return { success: true, name: result.name, script_id: result.id, lines: result.lines, source: 'rest_api', opened: true };
 }
 
 /**
@@ -660,32 +661,24 @@ export async function deploy({ source, save_name, _deps } = {}) {
   };
 }
 
-export async function listScripts() {
-  const scripts = await _evaluateAsync(`
-    fetch('https://pine-facade.tradingview.com/pine-facade/list/?filter=saved', { credentials: 'include' })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (!Array.isArray(data)) return {scripts: [], error: 'Unexpected response from pine-facade'};
-        return {
-          scripts: data.map(function(s) {
-            return {
-              id: s.scriptIdPart || null,
-              name: s.scriptName || s.scriptTitle || 'Untitled',
-              title: s.scriptTitle || null,
-              version: s.version || null,
-              modified: s.modified || null,
-            };
-          })
-        };
-      })
-      .catch(function(e) { return {scripts: [], error: e.message}; })
-  `);
+export async function listScripts({ _deps } = {}) {
+  const { evaluateAsync } = _resolve(_deps);
+  assertRestEnabled('pine_list_scripts');
 
-  return {
-    success: true,
-    scripts: scripts?.scripts || [],
-    count: scripts?.scripts?.length || 0,
-    source: 'internal_api',
-    error: scripts?.error,
-  };
+  const url = 'https://pine-facade.tradingview.com/pine-facade/list/?filter=saved';
+  const data = await restFromRenderer(evaluateAsync, url);
+
+  if (!Array.isArray(data)) {
+    return { success: true, source: 'rest_api', count: 0, scripts: [], error: 'Unexpected response from pine-facade' };
+  }
+
+  const scripts = data.map((s) => ({
+    id: s.scriptIdPart || null,
+    name: s.scriptName || s.scriptTitle || 'Untitled',
+    title: s.scriptTitle || null,
+    version: s.version || null,
+    modified: s.modified || null,
+  }));
+
+  return { success: true, source: 'rest_api', count: scripts.length, scripts };
 }

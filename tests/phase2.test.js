@@ -7,7 +7,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { isoToUnix } from '../src/core/utils.js';
-import { fetchOhlcv, getMarketStatus, scrollToDate, setVisibleRange } from '../src/core/chart.js';
+import { fetchOhlcv, getMarketStatus, scrollToDate, setVisibleRange, symbolInfo } from '../src/core/chart.js';
 import { deploy } from '../src/core/pine.js';
 
 describe('isoToUnix() — date coercion', () => {
@@ -204,56 +204,91 @@ describe('deploy() — pine_deploy', () => {
 });
 
 describe('getMarketStatus() — market_status', () => {
+  // getMarketStatus calls evaluate twice: first to read the current chart symbol,
+  // then to read session info. This queue helper returns responses in FIFO order.
+  function evalQueue(...responses) {
+    let i = 0;
+    return async () => responses[i++];
+  }
+
   it('returns open for a regular subsession', async () => {
-    const evaluate = async () => ({
-      symbol: 'AAPL', exchange: 'NASDAQ', session: '0930-1600',
-      subsession_id: 'regular', timezone: 'America/New_York',
-    });
-    const res = await getMarketStatus({ _deps: { evaluate } });
+    const evaluate = evalQueue(
+      'AAPL',
+      { symbol: 'AAPL', exchange: 'NASDAQ', session: '0930-1600', subsession_id: 'regular', timezone: 'America/New_York' },
+    );
+    const res = await getMarketStatus({ symbol: 'AAPL', _deps: { evaluate } });
     assert.equal(res.success, true);
     assert.equal(res.status, 'open');
     assert.equal(res.symbol, 'AAPL');
     assert.equal(res.exchange, 'NASDAQ');
+    assert.equal(res.source, 'cdp');
   });
 
   it('returns pre_market / post_market from subsession id', async () => {
-    const pre = await getMarketStatus({ _deps: { evaluate: async () => ({ symbol: 'A', session: 'x', subsession_id: 'premarket' }) } });
+    const pre = await getMarketStatus({ symbol: 'A', _deps: { evaluate: evalQueue('A', { symbol: 'A', session: 'x', subsession_id: 'premarket' }) } });
     assert.equal(pre.status, 'pre_market');
-    const post = await getMarketStatus({ _deps: { evaluate: async () => ({ symbol: 'A', session: 'x', subsession_id: 'postmarket' }) } });
+    assert.equal(pre.source, 'cdp');
+    const post = await getMarketStatus({ symbol: 'A', _deps: { evaluate: evalQueue('A', { symbol: 'A', session: 'x', subsession_id: 'postmarket' }) } });
     assert.equal(post.status, 'post_market');
+    assert.equal(post.source, 'cdp');
   });
 
   it('treats 24x7 session as open', async () => {
-    const res = await getMarketStatus({ _deps: { evaluate: async () => ({ symbol: 'BTCUSD', session: '24x7', subsession_id: '' }) } });
+    const res = await getMarketStatus({ symbol: 'BTCUSD', _deps: { evaluate: evalQueue('BTCUSD', { symbol: 'BTCUSD', session: '24x7', subsession_id: '' }) } });
     assert.equal(res.status, 'open');
+    assert.equal(res.source, 'cdp');
   });
 
   it('includes is_tradable from the renderer payload', async () => {
-    const res = await getMarketStatus({ _deps: { evaluate: async () => ({
-      symbol: 'AAPL', exchange: 'NASDAQ', session: '0930-1600',
-      subsession_id: 'regular', timezone: 'America/New_York', is_tradable: true,
-    }) } });
+    const res = await getMarketStatus({ symbol: 'AAPL', _deps: { evaluate: evalQueue(
+      'AAPL',
+      { symbol: 'AAPL', exchange: 'NASDAQ', session: '0930-1600', subsession_id: 'regular', timezone: 'America/New_York', is_tradable: true },
+    ) } });
     assert.equal(res.success, true);
     assert.equal(res.is_tradable, true);
   });
 
   it('returns is_tradable: null when the renderer omits it', async () => {
-    const res = await getMarketStatus({ _deps: { evaluate: async () => ({
-      symbol: 'X', session: '0900-1700', subsession_id: 'regular',
-    }) } });
+    const res = await getMarketStatus({ symbol: 'X', _deps: { evaluate: evalQueue('X', { symbol: 'X', session: '0900-1700', subsession_id: 'regular' }) } });
     assert.equal(res.success, true);
     assert.equal(res.is_tradable, null);
   });
 
   it('falls back to error when session data is unavailable', async () => {
-    const res = await getMarketStatus({ _deps: { evaluate: async () => null } });
+    const res = await getMarketStatus({ symbol: 'AAPL', _deps: { evaluate: evalQueue('AAPL', null) } });
     assert.equal(res.success, false);
     assert.equal(res.error, 'session data unavailable');
+    assert.equal(res.source, 'cdp');
   });
 
   it('falls back to error on evaluate exception payload', async () => {
-    const res = await getMarketStatus({ _deps: { evaluate: async () => ({ __error: 'boom' }) } });
+    const res = await getMarketStatus({ symbol: 'AAPL', _deps: { evaluate: evalQueue('AAPL', { __error: 'boom' }) } });
     assert.equal(res.success, false);
     assert.equal(res.error, 'session data unavailable');
+    assert.equal(res.source, 'cdp');
+  });
+});
+
+describe('symbolInfo() — symbol_info', () => {
+  // symbolInfo reads the current chart symbol, then reads symbolExt() metadata.
+  function evalQueue(...responses) {
+    let i = 0;
+    return async () => responses[i++];
+  }
+
+  it('returns metadata tagged with source: cdp', async () => {
+    const evaluate = evalQueue(
+      'AAPL', // current symbol (matches, so no setSymbol)
+      { symbol: 'AAPL', full_name: 'NASDAQ:AAPL', exchange: 'NASDAQ', description: 'Apple Inc.', type: 'stock', pro_name: 'NASDAQ:AAPL', typespecs: [], resolution: 'D', chart_type: 1 },
+    );
+    const res = await symbolInfo({ symbol: 'AAPL', _deps: { evaluate } });
+    assert.equal(res.success, true);
+    assert.equal(res.symbol, 'AAPL');
+    assert.equal(res.exchange, 'NASDAQ');
+    assert.equal(res.source, 'cdp');
+  });
+
+  it('requires a symbol', async () => {
+    await assert.rejects(() => symbolInfo({ _deps: { evaluate: async () => ({}) } }), /symbol is required/);
   });
 });

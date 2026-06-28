@@ -79,12 +79,14 @@ export function registerPineTools(server) {
     try {
       const out = await withTab((deps) => core.openScript({ name, _deps: deps }), { route: 'visible' });
       return jsonResult(out);
-    } catch (err) { return fail(err, { source: 'internal_api' }); }
+    } catch (err) { return fail(err, { source: 'rest_api' }); }
   });
 
   server.tool('pine_list_scripts', 'List saved Pine Scripts', {}, async () => {
-    try { return jsonResult(await core.listScripts()); }
-    catch (err) { return fail(err); }
+    try {
+      const out = await withTab((deps) => core.listScripts({ _deps: deps }), { route: 'visible' });
+      return jsonResult(out);
+    } catch (err) { return fail(err); }
   });
 
   server.tool('pine_analyze', 'Run static analysis on Pine Script code WITHOUT compiling — catches array out-of-bounds, unguarded array.first()/last(), bad loop bounds, and implicit bool casts. Works offline, no TradingView connection needed.', {

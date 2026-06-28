@@ -3,6 +3,7 @@
  */
 import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, getClient, safeString } from '../connection.js';
 import { makeResolver } from './_resolve.js';
+import { restFromRenderer, assertRestEnabled } from './_rest.js';
 
 const _resolve = makeResolver(['evaluate', 'evaluateAsync']);
 
@@ -78,34 +79,52 @@ export async function create({ condition, price, message, _deps }) {
 
 export async function list({ _deps } = {}) {
   const { evaluateAsync } = _resolve(_deps);
-  // Use pricealerts REST API — returns structured data with alert_id, symbol, price, conditions
-  const result = await evaluateAsync(`
-    fetch('https://pricealerts.tradingview.com/list_alerts', { credentials: 'include' })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.s !== 'ok' || !Array.isArray(data.r)) return { alerts: [], error: data.errmsg || 'Unexpected response' };
-        return {
-          alerts: data.r.map(function(a) {
-            var sym = '';
-            try { sym = JSON.parse(a.symbol.replace(/^=/, '')).symbol || a.symbol; } catch(e) { sym = a.symbol; }
-            return {
-              alert_id: a.alert_id,
-              symbol: sym,
-              type: a.type,
-              message: a.message,
-              active: a.active,
-              condition: a.condition,
-              resolution: a.resolution,
-              created: a.create_time,
-              last_fired: a.last_fire_time,
-              expiration: a.expiration,
-            };
-          })
-        };
-      })
-      .catch(function(e) { return { alerts: [], error: e.message }; })
-  `);
-  return { success: true, alert_count: result?.alerts?.length || 0, source: 'internal_api', alerts: result?.alerts || [], error: result?.error };
+
+  // assertRestEnabled BEFORE try/catch so REST_DISABLED always propagates to caller.
+  assertRestEnabled('alert_list');
+
+  const url = 'https://pricealerts.tradingview.com/list_alerts';
+
+  try {
+    const data = await restFromRenderer(evaluateAsync, url);
+
+    // Node-side validation (data.s and data.r check).
+    if (!data || data.s !== 'ok' || !Array.isArray(data.r)) {
+      return {
+        success: true,
+        source: 'rest_api',
+        alert_count: 0,
+        alerts: [],
+        error: (data && data.errmsg) || 'Unexpected response from alerts API',
+      };
+    }
+
+    const alerts = data.r.map((a) => {
+      let sym = a.symbol;
+      // symbol may be JSON-encoded: '={"type":"symbol","symbol":"AAPL"}'
+      if (typeof sym === 'string' && sym.startsWith('=')) {
+        try { sym = JSON.parse(sym.slice(1)).symbol || sym; } catch (_) {}
+      }
+      return {
+        alert_id: a.alert_id,
+        symbol: sym,
+        type: a.type,
+        message: a.message,
+        active: a.active,
+        condition: a.condition,
+        resolution: a.resolution,
+        created: a.create_time,
+        last_fired: a.last_fire_time,
+        expiration: a.expiration,
+      };
+    });
+
+    return { success: true, source: 'rest_api', alert_count: alerts.length, alerts };
+  } catch (err) {
+    // restFromRenderer throws TvError(REST_HTTP) on non-2xx; map to soft-failure shape.
+    // assertRestEnabled already ran above so REST_DISABLED would have thrown before reaching here.
+    return { success: true, source: 'rest_api', alert_count: 0, alerts: [], error: err.message };
+  }
 }
 
 export async function deleteAlerts({ delete_all, _deps }) {

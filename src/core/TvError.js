@@ -14,6 +14,8 @@ export const TV_ERROR_CODES = Object.freeze({
   TARGET_GONE: 'TARGET_GONE',       // pinned tab no longer exists
   JS_EVAL: 'JS_EVAL',               // exception thrown inside the renderer
   REPLAY_ACTIVE: 'REPLAY_ACTIVE',   // global replay lock held by another session
+  REST_HTTP: 'REST_HTTP',           // REST endpoint returned a non-2xx status (retryable for 429/5xx)
+  REST_DISABLED: 'REST_DISABLED',   // TV_MCP_REST=0 is set but this tool has no CDP fallback
 });
 
 export class TvError extends Error {

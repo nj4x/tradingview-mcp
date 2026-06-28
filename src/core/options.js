@@ -19,6 +19,7 @@
  */
 import { evaluateAsync as _evaluateAsync, safeString } from '../connection.js';
 import { makeResolver } from './_resolve.js';
+import { restFromNode } from './_rest.js';
 
 const _resolve = makeResolver(['evaluateAsync'], { fetch: globalThis.fetch });
 
@@ -156,13 +157,10 @@ export async function searchContracts({
       lang: 'en',
       domain: 'production',
     });
-    const resp = await fetch(`https://symbol-search.tradingview.com/symbol_search/v3/?${params}`, {
+    const data = await restFromNode(fetch, `https://symbol-search.tradingview.com/symbol_search/v3/?${params}`, {
       headers: { Origin: 'https://www.tradingview.com', Referer: 'https://www.tradingview.com/' },
     });
-    if (resp && resp.ok) {
-      const data = await resp.json();
-      raw = data.symbols || (Array.isArray(data) ? data : []);
-    }
+    raw = data.symbols || (Array.isArray(data) ? data : []);
   } catch {
     raw = [];
   }

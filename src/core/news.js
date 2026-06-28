@@ -1,91 +1,74 @@
 /**
- * Core news logic. Fetches TradingView news from inside the renderer so the
- * logged-in session cookie is carried (credentials: 'include').
+ * Core news logic. Fetches TradingView news via the REST-first framework
+ * (_rest.js): the renderer only executes the authenticated HTTP fetch
+ * (credentials: 'include' carries the logged-in session cookie); all
+ * post-processing (item mapping, story-body flattening) happens here in Node.
  */
-import { evaluateAsync as _evaluateAsync, safeString } from '../connection.js';
 import { makeResolver } from './_resolve.js';
+import { restFromRenderer, assertRestEnabled } from './_rest.js';
 
-const _resolve = makeResolver(['evaluateAsync']);
+const _resolve = makeResolver(['evaluate', 'evaluateAsync']);
 
 export async function getHeadlines({ symbol, limit = 25, _deps } = {}) {
-  const { evaluateAsync } = _resolve(_deps);
-  let lim = Number(limit);
-  if (!Number.isFinite(lim)) lim = 25;
-  lim = Math.max(1, Math.min(50, Math.floor(lim)));
+  const { evaluate, evaluateAsync } = _resolve(_deps);
 
-  const symExpr = symbol
-    ? safeString(symbol)
-    : `window.TradingViewApi.activeChart().symbolExt().pro_name`;
+  // REST-only: propagate REST_DISABLED before any try/catch.
+  assertRestEnabled('news_get_headlines');
 
-  const expr = `
-    (async function() {
-      try {
-        var sym = ${symExpr};
-        var url = 'https://news-headlines.tradingview.com/v2/view/headlines/symbol?client=overview&lang=en&symbol=' + encodeURIComponent(sym);
-        var resp = await fetch(url, { credentials: 'include' });
-        var data = await resp.json();
-        var items = (data.items || []).slice(0, ${lim}).map(function(it) {
-          return {
-            id: it.id,
-            title: it.title,
-            provider: it.provider,
-            published: it.published,
-            urgency: it.urgency,
-            source: it.source,
-            relatedSymbols: (it.relatedSymbols || []).map(function(r) { return r.symbol; }),
-          };
-        });
-        return { symbol: sym, results: items };
-      } catch (e) {
-        return { __error: e && e.message ? e.message : String(e) };
-      }
-    })()
-  `;
+  const n = Number(limit);
+  const lim = Math.max(1, Math.min(50, Number.isFinite(n) ? n : 25));
 
-  const result = await evaluateAsync(expr);
-  if (result && result.__error) throw new Error(result.__error);
-  const results = (result && result.results) || [];
-  return { success: true, symbol: result && result.symbol, count: results.length, results };
+  let resolvedSym;
+  if (symbol) {
+    resolvedSym = symbol;
+  } else {
+    resolvedSym = await evaluate('window.TradingViewApi.activeChart().symbolExt().pro_name');
+  }
+  const encSymbol = encodeURIComponent(resolvedSym);
+
+  const url = `https://news-headlines.tradingview.com/v2/view/headlines/symbol?client=overview&lang=en&symbol=${encSymbol}`;
+  const data = await restFromRenderer(evaluateAsync, url);
+
+  const results = (data.items || []).slice(0, lim).map((item) => ({
+    id: item.id,
+    title: item.title,
+    provider: item.provider?.name || item.provider,
+    published: item.published,
+    urgency: item.urgency,
+    source: item.source,
+    relatedSymbols: item.relatedSymbols || [],
+  }));
+
+  return { success: true, symbol: resolvedSym, count: results.length, results, source: 'rest_api' };
 }
 
 export async function getStory({ id, _deps } = {}) {
   const { evaluateAsync } = _resolve(_deps);
-  if (!id || !String(id).trim()) throw new Error('Story id required');
 
-  const expr = `
-    (async function() {
-      try {
-        var url = 'https://news-headlines.tradingview.com/v2/story?id=' + encodeURIComponent(${safeString(id)}) + '&lang=en';
-        var resp = await fetch(url, { credentials: 'include' });
-        var data = await resp.json();
-        function flat(node) {
-          if (typeof node === 'string') return node;
-          if (!node) return '';
-          if (Array.isArray(node)) return node.map(flat).join('');
-          if (node.children) return node.children.map(flat).join('');
-          return '';
-        }
-        var body = '';
-        var ast = data.astDescription;
-        if (ast && ast.children) {
-          body = ast.children.map(flat).join('\\n\\n');
-        }
-        return {
-          title: data.title,
-          provider: data.provider,
-          source: data.source,
-          published: data.published,
-          link: data.link,
-          shortDescription: data.shortDescription,
-          body: body,
-        };
-      } catch (e) {
-        return { __error: e && e.message ? e.message : String(e) };
-      }
-    })()
-  `;
+  if (!id || !String(id).trim()) throw new Error('id is required');
 
-  const result = await evaluateAsync(expr);
-  if (result && result.__error) throw new Error(result.__error);
-  return { success: true, ...result };
+  // REST-only: propagate REST_DISABLED before any try/catch.
+  assertRestEnabled('news_get_story');
+
+  const url = `https://news-headlines.tradingview.com/v2/story?client=overview&lang=en&id=${encodeURIComponent(id)}`;
+  const data = await restFromRenderer(evaluateAsync, url);
+
+  function flat(node) {
+    if (!node) return '';
+    if (typeof node === 'string') return node;
+    if (Array.isArray(node)) return node.map(flat).join('');
+    if (node.content) return flat(node.content);
+    return '';
+  }
+
+  return {
+    success: true,
+    title: data.title,
+    provider: data.provider?.name || data.provider,
+    source: data.source,
+    published: data.published,
+    link: data.link || data.storyPath,
+    shortDescription: data.shortDescription || '',
+    body: flat(data.content || data.body || data.story_body || ''),
+  };
 }

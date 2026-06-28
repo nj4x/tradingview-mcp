@@ -346,3 +346,79 @@ The CLI is unaffected by the pool — it runs one command and exits on the legac
 regardless of `TV_MCP_POOL`.
 
 `npm run test:ctool` — concurrent multi-tool integration tests (CT-1..CT-5). Requires live TradingView on `--remote-debugging-port=9222`. Tests prove simultaneous operations on distinct tabs (CT-1/CT-2), tab reuse (CT-3), and TTL-based idle eviction (CT-4/CT-5). All tests use private pool instances — no global singleton is touched.
+
+## REST-First Architecture & Migration
+
+**Doctrine:** TradingView MCP prefers direct REST API endpoints over GUI/DOM manipulation wherever a stable endpoint exists. The REST framework (`src/core/_rest.js`) provides two execution modes:
+- **`restFromRenderer(evaluateAsync, url)`** — fetches authenticated endpoints FROM the logged-in renderer (carries session cookie)
+- **`restFromNode(fetch, url)`** — fetches public, unauthenticated endpoints FROM Node (e.g., symbol-search.tradingview.com)
+
+### Migration Status
+
+| Tool | Endpoint | Status | Source Field | Notes |
+|------|----------|--------|--------------|-------|
+| `news_get_headlines` | pine-facade / market-news | REST-only | `rest_api` | no CDP fallback; throws REST_DISABLED if TV_MCP_REST=0 |
+| `news_get_story` | market-news detail | REST-only | `data.source` (outlet) | no CDP fallback |
+| `alert_list` | alerts-facade | REST-only | `rest_api` | soft-failure: returns empty list + error on REST failure, never throws |
+| `alert_create` / `alert_delete` | alerts-facade | CDP-only | (N/A) | deferred; CDP-driven mutations |
+| `pine_list_scripts` | pine-facade | REST-only | `rest_api` | no CDP fallback; throws REST_DISABLED if TV_MCP_REST=0 |
+| `pine_*` (others) | (N/A) | CDP-only | `cdp` / `internal_api` | compile, save, deploy remain renderer-driven |
+| `symbol_search` | symbol-search.tradingview.com | REST-only | `rest_api` | public endpoint, fetched from Node |
+| `symbol_search_live` | (logged-in searchSymbols) | REST-only | `searchSymbols` | authenticated, fetched from renderer |
+| `symbol_info` | (logged-in REST) | REST → CDP | `cdp` | info route not yet migrated; fallback to CDP |
+| `quote_get` | (logged-in REST) | REST → CDP | `cdp` | quote route not yet migrated; fallback to CDP |
+| `market_status` | (logged-in REST) | REST → CDP | `cdp` | session status route not yet migrated; fallback to CDP |
+| `options_search` | options data API | REST-first | `rest_api` / `searchSymbols` | tier-1 uses Node REST; tier-2 uses renderer |
+| `watchlist_get` | symbols-list-custom API | REST-first | `rest_api` | auto-fallback to CDP (panel read) on REST failure |
+| `chart_fetch_ohlcv` | (internal datafeed REST) | REST-only | N/A | uses internal TradingView datafeed REST |
+
+### Rollback & Disabled-REST Contract
+
+**Global disable flag:** Set `TV_MCP_REST=0` to force all migrated tools onto their CDP fallback path (if one exists). Tools without a fallback will throw `TvError('REST_DISABLED')`.
+
+**Soft-failure vs. hard-error:**
+- **Hard-error tools** (news, pine, alerts.list): throw `TvError('REST_DISABLED')` when TV_MCP_REST=0 and no fallback exists. Caller must handle.
+- **Soft-failure tools** (alerts.list only): catch REST errors and return `{ success: true, ..., error: "message" }` instead of throwing. This preserves backward compatibility for tools that should never crash the user's workflow.
+
+### Dependency Injection & Testability
+
+All REST-migrated core functions take `{ _deps } = {}` and resolve via `makeResolver()`:
+```js
+export async function listScripts({ _deps } = {}) {
+  const { evaluateAsync } = _resolve(_deps);
+  assertRestEnabled('pine_list_scripts');
+  const data = await restFromRenderer(evaluateAsync, url);
+  // ...
+}
+```
+
+**Strict-DI mode** (`TV_MCP_STRICT_DI=1`): resolver throws if `_deps` is missing and a resolved dep is destructured. Catches tools that accidentally bypassed DI.
+
+Tests inject mock `evaluateAsync` via `_deps` to avoid real network calls:
+```js
+const evaluateAsync = async () => ({ __ok: true, status: 200, data: [...] });
+const result = await listScripts({ _deps: { evaluateAsync } });
+```
+
+### Source Field Convention
+
+All REST returns include a `source` field for caller transparency:
+- **`"rest_api"`** — data came from a TradingView REST endpoint
+- **`"cdp"`** — data came from a CDP evaluate() expression
+- **`"searchSymbols"`** — data came from the renderer's searchSymbols API (tier-2 fallback for symbol_search)
+- **`"internal_api"`** — deprecated; renamed to `"rest_api"` in the REST migration
+
+### Error Handling
+
+**Rest HTTP errors** (`TvError('REST_HTTP')`):
+- Retryable for 429 (rate limit) and 5xx (server errors)
+- Non-retryable for 4xx client errors (auth, not found, validation)
+
+**Missing REST support** (`TvError('REST_DISABLED')`):
+- Non-retryable; caller must handle
+- Only thrown when TV_MCP_REST=0 and the tool has no CDP fallback
+
+**Envelope protocol:**
+- Renderer fetch returns `{ __ok: boolean, status: number, data: any }` or `{ __error: string }`
+- Node fetch returns standard Response; throws on !resp.ok
+- Both routes normalize to TvError + code/retryable for consistent caller handling
