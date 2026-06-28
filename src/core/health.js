@@ -3,10 +3,80 @@
  */
 import { getClient, getTargetInfo, evaluate as _evaluate } from '../connection.js';
 import { makeResolver } from './_resolve.js';
+import { listChartTargets as _listChartTargets } from './cdpDiscovery.js';
 import { existsSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 
 const _resolve = makeResolver(['evaluate']);
+
+const CDP_HOST = process.env.TV_MCP_CDP_HOST || 'localhost';
+const CDP_PORT = Number(process.env.TV_MCP_CDP_PORT || 9222);
+
+/** True if the CDP HTTP endpoint answers /json/version within timeoutMs. */
+async function cdpReachable(port = CDP_PORT, host = CDP_HOST, timeoutMs = 1500) {
+  try {
+    const http = await import('http');
+    return await new Promise((resolve) => {
+      const req = http.get(`http://${host}:${port}/json/version`, (res) => {
+        res.resume();
+        resolve(res.statusCode >= 200 && res.statusCode < 300);
+      });
+      req.on('error', () => resolve(false));
+      req.setTimeout(timeoutMs, () => { req.destroy(); resolve(false); });
+    });
+  } catch { return false; }
+}
+
+/**
+ * Ensure TradingView Desktop is running with CDP open and (optionally) a chart target
+ * loaded. Idempotent: if CDP already answers, it does NOT relaunch — it just waits for a
+ * chart target. If CDP is unreachable, it launches TV (kill_existing: false, so a user's
+ * non-CDP instance is left alone) and polls until a chart page appears.
+ *
+ * Returns { success, launched, already_running, chart_targets }. On a missing TV binary
+ * `launch()` throws — callers that want best-effort startup should `.catch()`.
+ *
+ * @param {{ port?, host?, waitForChart?, chartTimeoutMs?, _deps? }} opts
+ *   _deps.listChartTargets — injectable for tests (defaults to the real cdpDiscovery one).
+ */
+export async function ensureTradingViewRunning({
+  port, host, waitForChart = true, chartTimeoutMs = 45000, _deps,
+} = {}) {
+  const cdpPort = port || CDP_PORT;
+  const cdpHost = host || CDP_HOST;
+  const listTargets = _deps?.listChartTargets || _listChartTargets;
+
+  const alreadyUp = await cdpReachable(cdpPort, cdpHost);
+  if (!alreadyUp) {
+    // Not reachable → launch fresh. kill_existing:false so we never kill a user instance.
+    await launch({ port: cdpPort, kill_existing: false });
+  }
+
+  if (!waitForChart) {
+    return { success: true, launched: !alreadyUp, already_running: alreadyUp };
+  }
+
+  // Poll for a chart page target (TV is slow to render the chart after CDP comes up).
+  const deadline = Date.now() + chartTimeoutMs;
+  let lastCount = 0;
+  while (Date.now() < deadline) {
+    let charts = [];
+    try { charts = await listTargets(); } catch { charts = []; }
+    lastCount = charts.length;
+    if (charts.length > 0) {
+      return {
+        success: true, launched: !alreadyUp, already_running: alreadyUp,
+        chart_targets: charts.length,
+      };
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  return {
+    success: false, launched: !alreadyUp, already_running: alreadyUp,
+    chart_targets: lastCount,
+    warning: `No TradingView chart target appeared within ${chartTimeoutMs}ms`,
+  };
+}
 
 export async function healthCheck({ _deps } = {}) {
   const { evaluate } = _resolve(_deps);

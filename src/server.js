@@ -18,6 +18,7 @@ import { registerNewsTools } from './tools/news.js';
 import { registerOptionsTools } from './tools/options.js';
 import { EXTENDED_TOOLS } from './tools/_groups.js';
 import { startDiagnostics } from './core/diagnostics.js';
+import { ensureTradingViewRunning } from './core/health.js';
 import { ensurePrimarySlot, isPoolDisabled, getPool } from './connection.js';
 
 const tvMcpExtended = process.env.TV_MCP_EXTENDED;
@@ -151,7 +152,18 @@ process.stderr.write('   Ensure your usage complies with TradingView\'s Terms of
 // Warm the primary (visible) tab in the BACKGROUND so the first request doesn't pay
 // adopt-or-create cost — but don't block server startup (ensurePrimarySlot retries for
 // ~15s when TradingView is down). If it fails, the first real tool call surfaces CDP_DOWN.
-ensurePrimarySlot().catch((err) => {
+// With TV_MCP_AUTO_LAUNCH=1, first auto-launch TradingView Desktop when CDP is unreachable.
+(async () => {
+  if (process.env.TV_MCP_AUTO_LAUNCH === '1') {
+    try {
+      const r = await ensureTradingViewRunning({ chartTimeoutMs: 60000 });
+      if (r.launched) process.stderr.write('   Auto-launched TradingView Desktop (CDP 9222).\n');
+    } catch (err) {
+      process.stderr.write(`⚠  auto-launch failed: ${err?.message || err}\n`);
+    }
+  }
+  await ensurePrimarySlot();
+})().catch((err) => {
   process.stderr.write(`⚠  primary tab warmup deferred: ${err?.message || err}\n`);
 });
 

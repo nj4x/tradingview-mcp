@@ -20,6 +20,7 @@ import * as tabModule from '../src/core/tab.js';
 import * as chartCore from '../src/core/chart.js';
 import * as newsCore from '../src/core/news.js';
 import * as optionsCore from '../src/core/options.js';
+import { ensureTradingViewRunning } from '../src/core/health.js';
 import { CdpPool } from '../src/core/CdpPool.js';
 
 const depsFor = (conn) => ({
@@ -35,6 +36,18 @@ let hasTV = false;
 let canGrow = false;
 let hasNews = false;
 let hasOptions = false;
+let launchError = null;
+
+// Auto-launch TradingView Desktop if it's not already reachable on CDP. This is what
+// lets the concurrency-proof tests RUN (instead of skip) on a clean machine. Opt out
+// with TV_MCP_NO_AUTOLAUNCH=1 (e.g. CI without a TV install).
+if (process.env.TV_MCP_NO_AUTOLAUNCH !== '1') {
+  try {
+    await ensureTradingViewRunning({ chartTimeoutMs: 60000 });
+  } catch (e) {
+    launchError = e?.message || String(e);
+  }
+}
 
 try {
   const charts = await cdpDiscovery.listChartTargets();
@@ -76,7 +89,8 @@ try {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('CdpPool concurrent multi-tool e2e (requires live TradingView)', {
-  skip: hasTV ? undefined : 'TradingView not reachable on port 9222',
+  skip: hasTV ? undefined
+    : `TradingView not reachable on port 9222${launchError ? ` (auto-launch failed: ${launchError})` : ''}`,
 }, () => {
 
   let pool = null;
