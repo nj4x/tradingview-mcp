@@ -6,16 +6,11 @@ import { waitForChartReady as _waitForChartReady } from '../wait.js';
 import { getStudyValues, getPineGraphics, getQuote, getOhlcv } from './data.js';
 import { captureScreenshot as _captureScreenshot } from './capture.js';
 import { isoToUnix } from './utils.js';
+import { makeResolver } from './_resolve.js';
 
 const CHART_API = 'window.TradingViewApi._activeChartWidgetWV.value()';
 
-function _resolve(deps) {
-  return {
-    evaluate: deps?.evaluate || _evaluate,
-    evaluateAsync: deps?.evaluateAsync || _evaluateAsync,
-    waitForChartReady: deps?.waitForChartReady || _waitForChartReady,
-  };
-}
+const _resolve = makeResolver(['evaluate', 'evaluateAsync'], { waitForChartReady: _waitForChartReady });
 
 export async function getState({ _deps } = {}) {
   const { evaluate } = _resolve(_deps);
@@ -118,7 +113,8 @@ export async function manageIndicator({ action, indicator, entity_id, inputs: in
   }
 }
 
-export async function getVisibleRange() {
+export async function getVisibleRange({ _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
   const result = await evaluate(`
     (function() {
       var chart = ${CHART_API};
@@ -200,7 +196,8 @@ export async function scrollToDate({ date, _deps } = {}) {
   return { success: true, date, centered_on: timestamp, resolution, window: { from, to } };
 }
 
-export async function symbolInfo() {
+export async function symbolInfo({ _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
   const result = await evaluate(`
     (function() {
       var chart = ${CHART_API};
@@ -318,8 +315,8 @@ function _capReport(result, sel) {
 }
 
 export async function symbolSearchLive({ query, _deps } = {}) {
-  const { evaluateAsync } = _resolve(_deps);
   if (!query || !String(query).trim()) throw new Error('query is required');
+  const { evaluateAsync } = _resolve(_deps);
   const result = await evaluateAsync(`
     (async function() {
       try {
@@ -350,9 +347,8 @@ export async function symbolSearchLive({ query, _deps } = {}) {
  * avoiding a redundant reload.
  */
 export async function fetchOhlcv({ symbol, timeframe, count, summary, _deps } = {}) {
-  const { evaluate, evaluateAsync, waitForChartReady } = _resolve(_deps);
-  const deps = { evaluate, evaluateAsync, waitForChartReady };
   if (!symbol || !String(symbol).trim()) throw new Error('symbol is required');
+  const { evaluate } = _resolve(_deps);
 
   const current = await evaluate(`
     (function() {
@@ -365,15 +361,15 @@ export async function fetchOhlcv({ symbol, timeframe, count, summary, _deps } = 
   let timeframe_changed = false;
 
   if (symbol !== current?.symbol) {
-    await setSymbol({ symbol, _deps: deps });
+    await setSymbol({ symbol, _deps });
     symbol_changed = true;
   }
   if (timeframe !== undefined && timeframe !== null && String(timeframe) !== String(current?.resolution)) {
-    await setTimeframe({ timeframe, _deps: deps });
+    await setTimeframe({ timeframe, _deps });
     timeframe_changed = true;
   }
 
-  const ohlcv = await getOhlcv({ count, summary, _deps: deps });
+  const ohlcv = await getOhlcv({ count, summary, _deps });
 
   const resolved_timeframe = (timeframe !== undefined && timeframe !== null)
     ? timeframe

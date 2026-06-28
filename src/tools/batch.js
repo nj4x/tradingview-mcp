@@ -1,6 +1,16 @@
 import { z } from 'zod';
 import { jsonResult } from './_format.js';
 import * as core from '../core/batch.js';
+import { withTab } from '../core/withTab.js';
+import { TvError } from '../core/TvError.js';
+
+function fail(err) {
+  const e = TvError.from(err);
+  return jsonResult(
+    { success: false, error: e.message, code: e.code, retryable: e.retryable },
+    true,
+  );
+}
 
 export function registerBatchTools(server) {
   server.tool('batch_run', 'Run an action across multiple symbols and/or timeframes', {
@@ -10,7 +20,9 @@ export function registerBatchTools(server) {
     delay_ms: z.coerce.number().optional().describe('Delay between iterations in ms (default 2000)'),
     ohlcv_count: z.coerce.number().optional().describe('Bar count for get_ohlcv action (default 100)'),
   }, async ({ symbols, timeframes, action, delay_ms, ohlcv_count }) => {
-    try { return jsonResult(await core.batchRun({ symbols, timeframes, action, delay_ms, ohlcv_count })); }
-    catch (err) { return jsonResult({ success: false, error: err.message }, true); }
+    try {
+      const out = await withTab((deps) => core.batchRun({ symbols, timeframes, action, delay_ms, ohlcv_count, _deps: deps }), { route: 'headless' });
+      return jsonResult(out);
+    } catch (err) { return fail(err); }
   });
 }

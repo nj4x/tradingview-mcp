@@ -1,8 +1,11 @@
 /**
  * Core batch execution logic.
  */
-import { evaluate, evaluateAsync, getClient, getChartApi, getChartCollection, safeString } from '../connection.js';
+import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, getClient, getChartApi, getChartCollection, safeString } from '../connection.js';
+import { makeResolver } from './_resolve.js';
 import { waitForChartReady } from '../wait.js';
+
+const _resolve = makeResolver(['evaluate', 'evaluateAsync']);
 import { writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -10,7 +13,8 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCREENSHOT_DIR = join(dirname(dirname(__dirname)), 'screenshots');
 
-export async function batchRun({ symbols, timeframes, action, delay_ms, ohlcv_count }) {
+export async function batchRun({ symbols, timeframes, action, delay_ms, ohlcv_count, _deps }) {
+  const { evaluate, evaluateAsync } = _resolve(_deps);
   const tfs = timeframes && timeframes.length > 0 ? timeframes : [null];
   const delay = delay_ms || 2000;
   const results = [];
@@ -31,7 +35,7 @@ export async function batchRun({ symbols, timeframes, action, delay_ms, ohlcv_co
           else if (apiPath) await evaluate(`${apiPath}.setResolution(${safeString(tf)})`);
         }
 
-        await waitForChartReady(symbol);
+        await waitForChartReady(symbol, null, undefined, _deps);
         await new Promise(r => setTimeout(r, delay));
 
         let actionResult;

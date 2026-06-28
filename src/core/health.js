@@ -1,11 +1,15 @@
 /**
  * Core health/discovery/launch logic.
  */
-import { getClient, getTargetInfo, evaluate } from '../connection.js';
+import { getClient, getTargetInfo, evaluate as _evaluate } from '../connection.js';
+import { makeResolver } from './_resolve.js';
 import { existsSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 
-export async function healthCheck() {
+const _resolve = makeResolver(['evaluate']);
+
+export async function healthCheck({ _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
   await getClient();
   const target = await getTargetInfo();
 
@@ -42,7 +46,8 @@ export async function healthCheck() {
   };
 }
 
-export async function discover() {
+export async function discover({ _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
   const paths = await evaluate(`
     (function() {
       var results = {};
@@ -88,7 +93,8 @@ export async function discover() {
   return { success: true, apis_available: available, apis_total: total, apis: paths };
 }
 
-export async function uiState() {
+export async function uiState({ _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
   const state = await evaluate(`
     (function() {
       var ui = {};

@@ -2,6 +2,7 @@
  * Core replay mode logic.
  */
 import { evaluate as _evaluate, getReplayApi as _getReplayApi } from '../connection.js';
+import { makeResolver } from './_resolve.js';
 
 export const VALID_AUTOPLAY_DELAYS = [100, 143, 200, 300, 1000, 2000, 3000, 5000, 10000];
 
@@ -9,12 +10,7 @@ function wv(path) {
   return `(function(){ var v = ${path}; return (v && typeof v === 'object' && typeof v.value === 'function') ? v.value() : v; })()`;
 }
 
-function _resolve(deps) {
-  return {
-    evaluate: deps?.evaluate || _evaluate,
-    getReplayApi: deps?.getReplayApi || _getReplayApi,
-  };
-}
+const _resolve = makeResolver(['evaluate'], { getReplayApi: _getReplayApi });
 
 export async function start({ date, _deps } = {}) {
   const { evaluate, getReplayApi } = _resolve(_deps);

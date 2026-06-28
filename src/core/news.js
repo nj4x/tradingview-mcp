@@ -3,12 +3,9 @@
  * logged-in session cookie is carried (credentials: 'include').
  */
 import { evaluateAsync as _evaluateAsync, safeString } from '../connection.js';
+import { makeResolver } from './_resolve.js';
 
-function _resolve(deps) {
-  return {
-    evaluateAsync: deps?.evaluateAsync || _evaluateAsync,
-  };
-}
+const _resolve = makeResolver(['evaluateAsync']);
 
 export async function getHeadlines({ symbol, limit = 25, _deps } = {}) {
   const { evaluateAsync } = _resolve(_deps);

@@ -1,9 +1,13 @@
 /**
  * Core alert logic.
  */
-import { evaluate, evaluateAsync, getClient, safeString } from '../connection.js';
+import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, getClient, safeString } from '../connection.js';
+import { makeResolver } from './_resolve.js';
 
-export async function create({ condition, price, message }) {
+const _resolve = makeResolver(['evaluate', 'evaluateAsync']);
+
+export async function create({ condition, price, message, _deps }) {
+  const { evaluate } = _resolve(_deps);
   const opened = await evaluate(`
     (function() {
       var btn = document.querySelector('[aria-label="Create Alert"]')
@@ -72,7 +76,8 @@ export async function create({ condition, price, message }) {
   return { success: !!created, price, condition, message: message || '(none)', price_set: !!priceSet, source: 'dom_fallback' };
 }
 
-export async function list() {
+export async function list({ _deps } = {}) {
+  const { evaluateAsync } = _resolve(_deps);
   // Use pricealerts REST API — returns structured data with alert_id, symbol, price, conditions
   const result = await evaluateAsync(`
     fetch('https://pricealerts.tradingview.com/list_alerts', { credentials: 'include' })
@@ -103,7 +108,8 @@ export async function list() {
   return { success: true, alert_count: result?.alerts?.length || 0, source: 'internal_api', alerts: result?.alerts || [], error: result?.error };
 }
 
-export async function deleteAlerts({ delete_all }) {
+export async function deleteAlerts({ delete_all, _deps }) {
+  const { evaluate } = _resolve(_deps);
   if (delete_all) {
     const result = await evaluate(`
       (function() {

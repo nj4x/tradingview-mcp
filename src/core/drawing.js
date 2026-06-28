@@ -2,10 +2,9 @@
  * Core drawing logic.
  */
 import { evaluate as _evaluate, getChartApi as _getChartApi, safeString, requireFinite } from '../connection.js';
+import { makeResolver } from './_resolve.js';
 
-function _resolve(deps) {
-  return { evaluate: deps?.evaluate || _evaluate, getChartApi: deps?.getChartApi || _getChartApi };
-}
+const _resolve = makeResolver(['evaluate'], { getChartApi: _getChartApi });
 
 export async function drawShape({ shape, point, point2, overrides: overridesRaw, text, _deps }) {
   const { evaluate, getChartApi } = _resolve(_deps);

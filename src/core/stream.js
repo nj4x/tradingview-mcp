@@ -2,7 +2,10 @@
  * Core streaming logic — real-time JSONL output from TradingView.
  * Uses efficient poll + dedup: only emits when data changes.
  */
-import { evaluate } from '../connection.js';
+import { evaluate as _evaluate } from '../connection.js';
+import { makeResolver } from './_resolve.js';
+
+const _resolve = makeResolver(['evaluate']);
 
 const CHART_API = 'window.TradingViewApi._activeChartWidgetWV.value()';
 const MODEL = `${CHART_API}._chartWidget.model()`;
@@ -59,7 +62,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Stream: quote ──
 
-async function fetchQuote() {
+async function fetchQuote(evaluate) {
   return evaluate(`
     (function() {
       var chart = ${CHART_API};
@@ -81,13 +84,14 @@ async function fetchQuote() {
   `);
 }
 
-export async function streamQuote({ interval } = {}) {
-  return pollLoop(fetchQuote, { interval: interval || 300, label: 'quote' });
+export async function streamQuote({ interval, _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
+  return pollLoop(() => fetchQuote(evaluate), { interval: interval || 300, label: 'quote' });
 }
 
 // ── Stream: ohlcv (last N bars, emits on new bar) ──
 
-async function fetchLastBar() {
+async function fetchLastBar(evaluate) {
   return evaluate(`
     (function() {
       var chart = ${CHART_API};
@@ -111,13 +115,14 @@ async function fetchLastBar() {
   `);
 }
 
-export async function streamBars({ interval } = {}) {
-  return pollLoop(fetchLastBar, { interval: interval || 500, label: 'bars' });
+export async function streamBars({ interval, _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
+  return pollLoop(() => fetchLastBar(evaluate), { interval: interval || 500, label: 'bars' });
 }
 
 // ── Stream: indicator values ──
 
-async function fetchValues() {
+async function fetchValues(evaluate) {
   return evaluate(`
     (function() {
       var chart = ${CHART_API};
@@ -145,13 +150,14 @@ async function fetchValues() {
   `);
 }
 
-export async function streamValues({ interval } = {}) {
-  return pollLoop(fetchValues, { interval: interval || 500, label: 'values' });
+export async function streamValues({ interval, _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
+  return pollLoop(() => fetchValues(evaluate), { interval: interval || 500, label: 'values' });
 }
 
 // ── Stream: pine lines ──
 
-async function fetchLines(studyFilter) {
+async function fetchLines(evaluate, studyFilter) {
   const filter = studyFilter ? JSON.stringify(studyFilter) : 'null';
   return evaluate(`
     (function() {
@@ -191,13 +197,14 @@ async function fetchLines(studyFilter) {
   `);
 }
 
-export async function streamLines({ interval, filter } = {}) {
-  return pollLoop(() => fetchLines(filter), { interval: interval || 1000, label: 'lines' });
+export async function streamLines({ interval, filter, _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
+  return pollLoop(() => fetchLines(evaluate, filter), { interval: interval || 1000, label: 'lines' });
 }
 
 // ── Stream: pine labels ──
 
-async function fetchLabels(studyFilter) {
+async function fetchLabels(evaluate, studyFilter) {
   const filterStr = studyFilter ? JSON.stringify(studyFilter) : 'null';
   return evaluate(`
     (function() {
@@ -234,13 +241,14 @@ async function fetchLabels(studyFilter) {
   `);
 }
 
-export async function streamLabels({ interval, filter } = {}) {
-  return pollLoop(() => fetchLabels(filter), { interval: interval || 1000, label: 'labels' });
+export async function streamLabels({ interval, filter, _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
+  return pollLoop(() => fetchLabels(evaluate, filter), { interval: interval || 1000, label: 'labels' });
 }
 
 // ── Stream: pine tables ──
 
-async function fetchTables(studyFilter) {
+async function fetchTables(evaluate, studyFilter) {
   const filterStr = studyFilter ? JSON.stringify(studyFilter) : 'null';
   return evaluate(`
     (function() {
@@ -284,15 +292,16 @@ async function fetchTables(studyFilter) {
   `);
 }
 
-export async function streamTables({ interval, filter } = {}) {
-  return pollLoop(() => fetchTables(filter), { interval: interval || 2000, label: 'tables' });
+export async function streamTables({ interval, filter, _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
+  return pollLoop(() => fetchTables(evaluate, filter), { interval: interval || 2000, label: 'tables' });
 }
 
 // ── Stream: all panes (multi-symbol) ──
 
 const CWC = 'window.TradingViewApi._chartWidgetCollection';
 
-async function fetchAllPanes() {
+async function fetchAllPanes(evaluate) {
   return evaluate(`
     (function() {
       var cwc = ${CWC};
@@ -330,6 +339,7 @@ async function fetchAllPanes() {
   `);
 }
 
-export async function streamAllPanes({ interval } = {}) {
-  return pollLoop(fetchAllPanes, { interval: interval || 500, label: 'all-panes' });
+export async function streamAllPanes({ interval, _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
+  return pollLoop(() => fetchAllPanes(evaluate), { interval: interval || 500, label: 'all-panes' });
 }

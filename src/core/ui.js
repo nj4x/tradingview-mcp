@@ -1,9 +1,13 @@
 /**
  * Core UI automation logic.
  */
-import { evaluate, evaluateAsync, getClient } from '../connection.js';
+import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, getClient } from '../connection.js';
+import { makeResolver } from './_resolve.js';
 
-export async function click({ by, value }) {
+const _resolve = makeResolver(['evaluate', 'evaluateAsync']);
+
+export async function click({ by, value, _deps }) {
+  const { evaluate } = _resolve(_deps);
   const escaped = JSON.stringify(value);
   const result = await evaluate(`
     (function() {
@@ -28,7 +32,8 @@ export async function click({ by, value }) {
   return { success: true, clicked: result };
 }
 
-export async function openPanel({ panel, action }) {
+export async function openPanel({ panel, action, _deps }) {
+  const { evaluate } = _resolve(_deps);
   const isBottomPanel = panel === 'pine-editor' || panel === 'strategy-tester';
   if (isBottomPanel) {
     const widgetName = panel === 'pine-editor' ? 'pine-editor' : 'backtesting';
@@ -88,7 +93,8 @@ export async function openPanel({ panel, action }) {
   }
 }
 
-export async function fullscreen() {
+export async function fullscreen({ _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
   const result = await evaluate(`
     (function() {
       var btn = document.querySelector('[data-name="header-toolbar-fullscreen"]');
@@ -101,7 +107,8 @@ export async function fullscreen() {
   return { success: true, action: 'fullscreen_toggled' };
 }
 
-export async function layoutList() {
+export async function layoutList({ _deps } = {}) {
+  const { evaluateAsync } = _resolve(_deps);
   const layouts = await evaluateAsync(`
     new Promise(function(resolve) {
       try {
@@ -117,7 +124,8 @@ export async function layoutList() {
   return { success: true, layout_count: layouts?.layouts?.length || 0, source: layouts?.source, layouts: layouts?.layouts || [], error: layouts?.error };
 }
 
-export async function layoutSwitch({ name }) {
+export async function layoutSwitch({ name, _deps }) {
+  const { evaluate, evaluateAsync } = _resolve(_deps);
   const escaped = JSON.stringify(name);
   const result = await evaluateAsync(`
     new Promise(function(resolve) {
@@ -190,7 +198,8 @@ export async function typeText({ text }) {
   return { success: true, typed: text.substring(0, 100), length: text.length };
 }
 
-export async function hover({ by, value }) {
+export async function hover({ by, value, _deps }) {
+  const { evaluate } = _resolve(_deps);
   const coords = await evaluate(`
     (function() {
       var by = ${JSON.stringify(by)};
@@ -216,7 +225,8 @@ export async function hover({ by, value }) {
   return { success: true, hovered: { by, value, tag: coords.tag, x: coords.x, y: coords.y } };
 }
 
-export async function scroll({ direction, amount }) {
+export async function scroll({ direction, amount, _deps }) {
+  const { evaluate } = _resolve(_deps);
   const c = await getClient();
   const px = amount || 300;
   const center = await evaluate(`
@@ -249,7 +259,8 @@ export async function mouseClick({ x, y, button, double_click }) {
   return { success: true, x, y, button: btn, double_click: !!double_click };
 }
 
-export async function findElement({ query, strategy }) {
+export async function findElement({ query, strategy, _deps }) {
+  const { evaluate } = _resolve(_deps);
   const strat = strategy || 'text';
   const results = await evaluate(`
     (function() {
@@ -287,7 +298,8 @@ export async function findElement({ query, strategy }) {
   return { success: true, query, strategy: strat, count: results?.length || 0, elements: results || [] };
 }
 
-export async function uiEvaluate({ expression }) {
+export async function uiEvaluate({ expression, _deps }) {
+  const { evaluate } = _resolve(_deps);
   const result = await evaluate(expression);
   return { success: true, result };
 }

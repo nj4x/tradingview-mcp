@@ -18,13 +18,9 @@
  * and capped at `limit` (default 50).
  */
 import { evaluateAsync as _evaluateAsync, safeString } from '../connection.js';
+import { makeResolver } from './_resolve.js';
 
-function _resolve(deps) {
-  return {
-    fetch: deps?.fetch || globalThis.fetch,
-    evaluateAsync: deps?.evaluateAsync || _evaluateAsync,
-  };
-}
+const _resolve = makeResolver(['evaluateAsync'], { fetch: globalThis.fetch });
 
 const strip = s => (s || '').replace(/<\/?em>/g, '');
 
@@ -140,7 +136,8 @@ export async function searchContracts({
 } = {}) {
   if (!underlying || !String(underlying).trim()) throw new Error('underlying is required');
 
-  const { fetch, evaluateAsync } = _resolve(_deps);
+  const _r = _resolve(_deps);
+  const { fetch } = _r;
   let lim = Number(limit);
   if (!Number.isFinite(lim)) lim = 50;
   lim = Math.max(1, Math.min(500, Math.floor(lim)));
@@ -173,7 +170,7 @@ export async function searchContracts({
   // ── Tier 2: renderer fallback (authenticated) ──────────────────────────
   if (!Array.isArray(raw) || raw.length === 0) {
     source = 'searchSymbols';
-    const result = await evaluateAsync(`
+    const result = await _r.evaluateAsync(`
       (async function() {
         try {
           var r = await window.TradingViewApi.searchSymbols({ text: ${safeString(underlying)}, type: 'option' });

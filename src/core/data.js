@@ -2,18 +2,14 @@
  * Core data access logic.
  */
 import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, KNOWN_PATHS, safeString } from '../connection.js';
+import { makeResolver } from './_resolve.js';
 
 const MAX_OHLCV_BARS = 500;
 const MAX_TRADES = 20;
 const CHART_API = KNOWN_PATHS.chartApi;
 const BARS_PATH = KNOWN_PATHS.mainSeriesBars;
 
-function _resolve(deps) {
-  return {
-    evaluate: deps?.evaluate || _evaluate,
-    evaluateAsync: deps?.evaluateAsync || _evaluateAsync,
-  };
-}
+const _resolve = makeResolver(['evaluate', 'evaluateAsync']);
 
 function buildGraphicsJS(collectionName, mapKey, filter) {
   return `

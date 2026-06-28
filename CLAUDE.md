@@ -301,3 +301,41 @@ TV_MCP_EXTENDED=1 npm start         # expose all 88 tools (default: 43 chart+dat
 The CLI (`npm run tv -- <cmd>`) is unaffected by `TV_MCP_EXTENDED` — all commands are always available. The flag only gates which tools the MCP server advertises over stdio. An unrecognized value (e.g. `TV_MCP_EXTENDED=foo`) prints a stderr warning and falls back to the default 43-tool mode.
 
 Event types in the buffer: `session_start`, `console`, `exception`, `log`, `network_response`, `network_failed`, `ws_frame`.
+
+## CDP Connection Pool (concurrency)
+
+The MCP server fronts CDP with a **connection pool** so multiple agents can fetch data
+for different symbols/timeframes concurrently, each on its own TradingView tab. Tools
+lease a tab via `withTab(fn, { route })` (`src/core/withTab.js`); the pool
+(`src/core/CdpPool.js`) adopts the user's existing chart as the **primary** (slot 0) and
+grows throwaway **worker** tabs up to `TV_MCP_MAX_TABS`. At capacity, a request **blocks
+on a queue** (it does not fail) until a tab frees — then proceeds. Worker tabs the server
+created are closed on clean shutdown (SIGINT/SIGTERM `drain()`); the user's adopted
+primary is never closed.
+
+**Routing intent** (`route` passed to `withTab`):
+
+| Route | Meaning | Tools |
+|-------|---------|-------|
+| `visible` | the primary/user-facing tab (slot 0); serializes user-visible ops | `chart_*`, `data_*`, `quote_get`, `draw_*`, `ui_*`, `pine_*`, `capture_screenshot`, `indicator_*`, `pane_*`, `watchlist_*`, `alert_*`, `market_status`, `symbol_info` |
+| `headless` | any worker tab; grows on demand, queues at capacity | `chart_fetch_ohlcv`, `symbol_search*`, `batch_run`, `news_*`, `options_search` |
+| replay lock | global exclusive lock + pinned visible tab via `ReplaySession` | `replay_*` |
+
+Tool errors now carry a stable `{ code, retryable }` (see `src/core/TvError.js`): codes
+`POOL_EXHAUSTED`, `POOL_DRAINING`, `CHART_TIMEOUT` are `retryable: true` (back off and
+retry); `CDP_DOWN`, `TARGET_GONE`, `JS_EVAL`, `REPLAY_ACTIVE` are not.
+
+Pool env flags:
+
+| Var | Default | Effect |
+|-----|---------|--------|
+| `TV_MCP_MAX_TABS` | `3` | Max concurrent tabs incl. primary. `1` = serial-but-pooled. Min 1. |
+| `TV_MCP_TAB_TIMEOUT_MS` | `20000` | How long `acquire()` queues before `POOL_EXHAUSTED`. |
+| `TV_MCP_EVAL_TIMEOUT_MS` | `15000` | Per-op `evaluate()` timeout inside a tab's serial queue. |
+| `TV_MCP_DRAIN_TIMEOUT_MS` | `8000` | `drain()` deadline before force-closing leased tabs. |
+| `TV_MCP_REPLAY_EXPIRY_MS` | `600000` | Idle auto-expiry for a forgotten replay session (releases the global lock). |
+| `TV_MCP_STRICT_DI` | _(unset)_ | `=1` → resolver throws on a missing `_deps` instead of falling back to the singleton (CI/DI gate). |
+| `TV_MCP_POOL` | _(unset)_ | `=0` → **bypass the pool**, use the legacy `getClient()` singleton (rollback lever). |
+
+The CLI is unaffected by the pool — it runs one command and exits on the legacy singleton,
+regardless of `TV_MCP_POOL`.

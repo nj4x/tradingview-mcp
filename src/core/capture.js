@@ -1,15 +1,19 @@
 /**
  * Core screenshot/capture logic.
  */
-import { getClient, evaluate, getChartCollection } from '../connection.js';
+import { getClient, evaluate as _evaluate, getChartCollection } from '../connection.js';
+import { makeResolver } from './_resolve.js';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
+const _resolve = makeResolver(['evaluate']);
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCREENSHOT_DIR = join(dirname(dirname(__dirname)), 'screenshots');
 
-export async function captureScreenshot({ region, filename, method } = {}) {
+export async function captureScreenshot({ region, filename, method, _deps } = {}) {
+  const { evaluate } = _resolve(_deps);
   mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
   const ts = new Date().toISOString().replace(/[:.]/g, '-');

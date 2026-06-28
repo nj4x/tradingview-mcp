@@ -4,13 +4,9 @@
  * They throw on error (callers catch and format).
  */
 import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, getClient } from '../connection.js';
+import { makeResolver } from './_resolve.js';
 
-function _resolve(deps) {
-  return {
-    evaluate: deps?.evaluate || _evaluate,
-    evaluateAsync: deps?.evaluateAsync || _evaluateAsync,
-  };
-}
+const _resolve = makeResolver(['evaluate', 'evaluateAsync']);
 
 // ── Monaco finder (injected into TV page) ──
 const FIND_MONACO = `

@@ -1,6 +1,16 @@
 import { z } from 'zod';
 import { jsonResult } from './_format.js';
 import * as core from '../core/options.js';
+import { withTab } from '../core/withTab.js';
+import { TvError } from '../core/TvError.js';
+
+function fail(err) {
+  const e = TvError.from(err);
+  return jsonResult(
+    { success: false, error: e.message, code: e.code, retryable: e.retryable },
+    true,
+  );
+}
 
 export function registerOptionsTools(server) {
   server.tool(
@@ -16,8 +26,10 @@ export function registerOptionsTools(server) {
       limit: z.coerce.number().optional().describe('Max contracts to return (default 50, capped at 500)'),
     },
     async (args) => {
-      try { return jsonResult(await core.searchContracts(args)); }
-      catch (err) { return jsonResult({ success: false, error: err.message }, true); }
+      try {
+        const out = await withTab((deps) => core.searchContracts({ ...args, _deps: deps }), { route: 'headless' });
+        return jsonResult(out);
+      } catch (err) { return fail(err); }
     }
   );
 }

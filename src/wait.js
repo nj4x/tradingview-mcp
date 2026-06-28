@@ -1,9 +1,13 @@
-import { evaluate } from './connection.js';
+import { evaluate as _evaluate } from './connection.js';
+import { makeResolver } from './core/_resolve.js';
+
+const _resolve = makeResolver(['evaluate']);
 
 const DEFAULT_TIMEOUT = 10000;
 const POLL_INTERVAL = 200;
 
-export async function waitForChartReady(expectedSymbol = null, expectedTf = null, timeout = DEFAULT_TIMEOUT) {
+export async function waitForChartReady(expectedSymbol = null, expectedTf = null, timeout = DEFAULT_TIMEOUT, _deps = {}) {
+  const { evaluate } = _resolve(_deps);
   const start = Date.now();
   let lastBarCount = -1;
   let stableCount = 0;

@@ -1,4 +1,5 @@
 import CDP from 'chrome-remote-interface';
+import { safeString, requireFinite } from './core/_safe.js';
 
 let client = null;
 let _diagnosticsSink = null;
@@ -35,24 +36,9 @@ const KNOWN_PATHS = {
 
 export { KNOWN_PATHS };
 
-/**
- * Sanitize a string for safe interpolation into JavaScript code evaluated via CDP.
- * Uses JSON.stringify to produce a properly escaped JS string literal (with quotes).
- * Prevents injection via quotes, backticks, template literals, or control chars.
- */
-export function safeString(str) {
-  return JSON.stringify(String(str));
-}
-
-/**
- * Validate that a value is a finite number. Throws if NaN, Infinity, or non-numeric.
- * Prevents corrupt values from reaching TradingView APIs that persist to cloud state.
- */
-export function requireFinite(value, name) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) throw new Error(`${name} must be a finite number, got: ${value}`);
-  return n;
-}
+// Re-exported from ./core/_safe.js for backwards compatibility.
+// Definitions now live in src/core/_safe.js (see Phase 0a migration).
+export { safeString, requireFinite } from './core/_safe.js';
 
 export async function getClient() {
   if (client) {
@@ -180,4 +166,51 @@ export async function getReplayApi() {
 
 export async function getMainSeriesBars() {
   return verifyAndReturn(KNOWN_PATHS.mainSeriesBars, 'Main Series Bars');
+}
+
+// --- CDP connection pool (Phase 1) ---
+// Imports are top-level but only DEREFERENCED inside functions, so the
+// connection.js ↔ CdpPool ↔ cdpDiscovery ↔ wait ↔ _resolve cycle stays safe
+// (ESM live bindings; nothing in this block runs at module-eval time).
+import { CdpPool } from './core/CdpPool.js';
+import { ReplaySession } from './core/replaySession.js';
+import * as tabModule from './core/tab.js';
+
+let _pool = null;
+let _replaySession = null;
+
+/** OPS-3 kill switch: TV_MCP_POOL=0 → bypass the pool, use the legacy singleton. */
+export function isPoolDisabled() {
+  return process.env.TV_MCP_POOL === '0';
+}
+
+export function getPool() {
+  if (isPoolDisabled()) {
+    throw new Error('getPool() called while TV_MCP_POOL=0; use getLegacyDeps()');
+  }
+  if (!_pool) _pool = new CdpPool({ tabModule });
+  return _pool;
+}
+
+export function getReplaySession() {
+  if (!_replaySession) _replaySession = new ReplaySession(getPool());
+  return _replaySession;
+}
+
+/** Server startup hook: ensure the visible/primary tab exists before serving. */
+export async function ensurePrimarySlot() {
+  if (isPoolDisabled()) { await getClient(); return; }
+  await getPool().ensurePrimary();
+}
+
+/** Legacy singleton deps used when the pool is disabled (withTab bypass). */
+export function getLegacyDeps() {
+  return { evaluate, evaluateAsync };
+}
+
+/** Test/shutdown helper: drain + drop the pool so the next getPool() rebuilds it. */
+export async function resetPool() {
+  if (_pool) { try { await _pool.drain(0); } catch {} }
+  _pool = null;
+  _replaySession = null;
 }

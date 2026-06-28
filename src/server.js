@@ -18,6 +18,7 @@ import { registerNewsTools } from './tools/news.js';
 import { registerOptionsTools } from './tools/options.js';
 import { EXTENDED_TOOLS } from './tools/_groups.js';
 import { startDiagnostics } from './core/diagnostics.js';
+import { ensurePrimarySlot, isPoolDisabled, getPool } from './connection.js';
 
 const tvMcpExtended = process.env.TV_MCP_EXTENDED;
 if (tvMcpExtended !== undefined && tvMcpExtended !== '1' && tvMcpExtended !== '0' && tvMcpExtended !== '') {
@@ -146,6 +147,26 @@ startDiagnostics();
 // Startup notice (stderr so it doesn't interfere with MCP stdio protocol)
 process.stderr.write('⚠  tradingview-mcp  |  Unofficial tool. Not affiliated with TradingView Inc. or Anthropic.\n');
 process.stderr.write('   Ensure your usage complies with TradingView\'s Terms of Use.\n\n');
+
+// Warm the primary (visible) tab in the BACKGROUND so the first request doesn't pay
+// adopt-or-create cost — but don't block server startup (ensurePrimarySlot retries for
+// ~15s when TradingView is down). If it fails, the first real tool call surfaces CDP_DOWN.
+ensurePrimarySlot().catch((err) => {
+  process.stderr.write(`⚠  primary tab warmup deferred: ${err?.message || err}\n`);
+});
+
+// Graceful shutdown: drain the pool (close self-created tabs, never the user's) on signal.
+let _shuttingDown = false;
+async function shutdown(signal) {
+  if (_shuttingDown) return;
+  _shuttingDown = true;
+  try {
+    if (!isPoolDisabled()) await getPool().drain();
+  } catch { /* best-effort */ }
+  process.exit(0);
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // Start stdio transport
 const transport = new StdioServerTransport();
