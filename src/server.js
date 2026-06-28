@@ -33,10 +33,10 @@ const defaultInstructions = `TradingView MCP — ${toolCount} tools for reading 
 TOOL SELECTION GUIDE — use this to pick the right tool:
 
 Reading your chart:
-- chart_get_state → get symbol, timeframe, all indicator names + entity IDs (call first)
 - data_get_study_values → get current numeric values from ALL visible indicators (RSI, MACD, BB, EMA, etc.)
 - quote_get → get real-time price snapshot (last, OHLC, volume)
 - data_get_ohlcv → get price bars. ALWAYS pass summary=true unless you need individual bars
+- fetch_ohlcv → fetch OHLCV for any symbol+timeframe in one call (headless, no chart switch needed)
 
 Reading custom Pine indicator output (line.new/label.new/table.new/box.new drawings):
 - data_get_pine_lines → horizontal price levels from custom indicators (deduplicated, sorted)
@@ -46,22 +46,20 @@ Reading custom Pine indicator output (line.new/label.new/table.new/box.new drawi
 - ALWAYS pass study_filter to target a specific indicator by name (e.g., study_filter="Profiler")
 - Indicators must be VISIBLE on chart for these to work
 
-Changing the chart:
-- chart_set_symbol, chart_set_timeframe, chart_set_type → change ticker/resolution/style
-- chart_manage_indicator → add/remove studies. USE FULL NAMES: "Relative Strength Index" not "RSI"
-- chart_scroll_to_date → jump to a date (ISO format)
+Symbols & market data:
+- symbol_search, symbol_search_live → search symbols
+- symbol_info → metadata for a symbol
+- market_status → current session status (open/closed/pre/post)
+- news_get_headlines, news_get_story → news feed for a symbol
 
-Screenshots: capture_screenshot → regions: "full", "chart", "strategy_tester"
 Launch: tv_launch → auto-detect and start TradingView with CDP on any platform
 
 CONTEXT MANAGEMENT:
 - ALWAYS use summary=true on data_get_ohlcv
 - ALWAYS use study_filter on pine tools when you know which indicator you want
 - NEVER use verbose=true unless user specifically asks for raw data
-- Prefer capture_screenshot for visual context over pulling large datasets
-- Call chart_get_state ONCE at start, reuse entity IDs
 
-Run with TV_MCP_EXTENDED=1 to unlock Pine Script, replay, drawing, alerts, UI automation, and batch tools (88 total).`;
+Run with TV_MCP_EXTENDED=1 to unlock chart control, screenshots, Pine Script, replay, drawing, alerts, UI automation, batch tools, and more (88 total).`;
 
 const extendedInstructions = `TradingView MCP — ${toolCount} tools for reading and controlling a live TradingView Desktop chart.
 

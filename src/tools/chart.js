@@ -85,9 +85,11 @@ export function registerChartTools(server) {
     } catch (err) { return fail(err); }
   });
 
-  server.tool('symbol_info', 'Get detailed metadata about the current symbol (name, exchange, type, description)', {}, async () => {
+  server.tool('symbol_info', 'Get detailed metadata about a symbol (name, exchange, type, description). Switches to the symbol if needed — does NOT restore the previous symbol.', {
+    symbol: z.string().describe('Symbol to inspect (e.g., "AAPL", "ES1!", "NYMEX:CL1!")'),
+  }, async ({ symbol }) => {
     try {
-      const out = await withTab((deps) => core.symbolInfo({ _deps: deps }), { route: 'visible' });
+      const out = await withTab((deps) => core.symbolInfo({ symbol, _deps: deps }), { route: 'headless' });
       return jsonResult(out);
     } catch (err) { return fail(err); }
   });
@@ -123,7 +125,7 @@ export function registerChartTools(server) {
     } catch (err) { return fail(err); }
   });
 
-  server.tool('chart_fetch_ohlcv', 'Fetch OHLCV for any symbol+timeframe in one call. Switches the chart to the requested symbol/timeframe (skipping the switch if already there), then returns bars. NOTE: this mutates the chart and does NOT restore the previous symbol/timeframe.', {
+  server.tool('fetch_ohlcv', 'Fetch OHLCV for any symbol+timeframe in one call. Switches the chart to the requested symbol/timeframe (skipping the switch if already there), then returns bars. NOTE: this mutates the chart and does NOT restore the previous symbol/timeframe.', {
     symbol: z.string().describe('Symbol to fetch (e.g., "AAPL", "ES1!", "NYMEX:CL1!")'),
     timeframe: z.string().optional().describe('Timeframe/resolution (e.g., "1", "5", "60", "D", "W"). Omit to keep the current timeframe.'),
     count: z.coerce.number().optional().describe('Number of bars (default 100, capped at 500)'),
@@ -135,9 +137,11 @@ export function registerChartTools(server) {
     } catch (err) { return fail(err); }
   });
 
-  server.tool('market_status', 'Get the current market session status for the chart symbol (open / closed / pre_market / post_market) plus session metadata.', {}, async () => {
+  server.tool('market_status', 'Get the market session status for a symbol (open / closed / pre_market / post_market) plus session metadata. Switches to the symbol if needed — does NOT restore the previous symbol.', {
+    symbol: z.string().describe('Symbol to check (e.g., "AAPL", "ES1!", "NYMEX:CL1!")'),
+  }, async ({ symbol }) => {
     try {
-      const out = await withTab((deps) => core.getMarketStatus({ _deps: deps }), { route: 'visible' });
+      const out = await withTab((deps) => core.getMarketStatus({ symbol, _deps: deps }), { route: 'headless' });
       return jsonResult(out);
     } catch (err) { return fail(err); }
   });

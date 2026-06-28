@@ -196,8 +196,11 @@ export async function scrollToDate({ date, _deps } = {}) {
   return { success: true, date, centered_on: timestamp, resolution, window: { from, to } };
 }
 
-export async function symbolInfo({ _deps } = {}) {
+export async function symbolInfo({ symbol, _deps } = {}) {
+  if (!symbol || !String(symbol).trim()) throw new Error('symbol is required');
   const { evaluate } = _resolve(_deps);
+  const current = await evaluate(`${CHART_API}.symbol()`);
+  if (symbol !== current) await setSymbol({ symbol, _deps });
   const result = await evaluate(`
     (function() {
       var chart = ${CHART_API};
@@ -391,8 +394,11 @@ export async function fetchOhlcv({ symbol, timeframe, count, summary, _deps } = 
  * Read the current symbol's market session status (open/closed/pre/post-market).
  * Reads chart.symbolExt() for the session descriptor TradingView exposes.
  */
-export async function getMarketStatus({ _deps } = {}) {
+export async function getMarketStatus({ symbol, _deps } = {}) {
+  if (!symbol || !String(symbol).trim()) throw new Error('symbol is required');
   const { evaluate } = _resolve(_deps);
+  const current = await evaluate(`${CHART_API}.symbol()`);
+  if (symbol !== current) await setSymbol({ symbol, _deps });
   const info = await evaluate(`
     (function() {
       try {

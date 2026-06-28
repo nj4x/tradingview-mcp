@@ -64,9 +64,11 @@ export function registerDataTools(server) {
     } catch (err) { return fail(err); }
   });
 
-  server.tool('depth_get', 'Get order book / DOM (Depth of Market) data from the chart', {}, async () => {
+  server.tool('depth_get', 'Get order book / DOM (Depth of Market) data for a symbol. Switches the visible chart to the symbol if needed — NOTE: this mutates the visible chart and does NOT restore the previous symbol. Requires the DOM panel to be open in TradingView.', {
+    symbol: z.string().describe('Symbol to fetch depth for (e.g., "AAPL", "ES1!", "NYMEX:CL1!")'),
+  }, async ({ symbol }) => {
     try {
-      const out = await withTab((deps) => core.getDepth({ _deps: deps }), { route: 'visible' });
+      const out = await withTab((deps) => core.getDepth({ symbol, _deps: deps }), { route: 'visible' });
       return jsonResult(out);
     } catch (err) { return fail(err, { hint: 'Open the DOM panel in TradingView before using this tool.' }); }
   });

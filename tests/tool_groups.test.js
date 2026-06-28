@@ -56,8 +56,8 @@ function registerAll(target) {
 }
 
 describe('EXTENDED_TOOLS', () => {
-  it('contains exactly 45 tool names', () => {
-    assert.equal(EXTENDED_TOOLS.size, 45);
+  it('contains exactly 76 tool names', () => {
+    assert.equal(EXTENDED_TOOLS.size, 76);
   });
 });
 
@@ -81,7 +81,7 @@ describe('full tool surface', () => {
 });
 
 describe('default-mode registrar proxy', () => {
-  it('registers exactly 43 tools (88 - 45 gated)', () => {
+  it('registers exactly 12 tools (88 - 76 gated)', () => {
     const { mock: server, names } = makeCollector();
     // Proxy mirrors src/server.js default-mode behavior.
     const registrar = {
@@ -90,7 +90,7 @@ describe('default-mode registrar proxy', () => {
       },
     };
     registerAll(registrar);
-    assert.equal(names.length, 43, `expected 43 registered tools, got ${names.length}`);
+    assert.equal(names.length, 12, `expected 12 registered tools, got ${names.length}`);
     // none of the gated tools leaked through
     for (const name of names) {
       assert.ok(!EXTENDED_TOOLS.has(name), `gated tool "${name}" leaked into default surface`);
@@ -105,8 +105,8 @@ describe('default-mode registrar proxy', () => {
       },
     };
     assert.equal(registrar.tool('pine_get_source', () => {}), undefined);
-    const kept = registrar.tool('chart_set_symbol', () => {});
-    assert.ok(kept && kept.name === 'chart_set_symbol');
+    const kept = registrar.tool('quote_get', () => {});
+    assert.ok(kept && kept.name === 'quote_get');
   });
 });
 

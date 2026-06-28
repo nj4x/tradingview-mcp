@@ -2,6 +2,7 @@
  * Core data access logic.
  */
 import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, KNOWN_PATHS, safeString } from '../connection.js';
+import { waitForChartReady as _waitForChartReady } from '../wait.js';
 import { makeResolver } from './_resolve.js';
 
 const MAX_OHLCV_BARS = 500;
@@ -9,7 +10,7 @@ const MAX_TRADES = 20;
 const CHART_API = KNOWN_PATHS.chartApi;
 const BARS_PATH = KNOWN_PATHS.mainSeriesBars;
 
-const _resolve = makeResolver(['evaluate', 'evaluateAsync']);
+const _resolve = makeResolver(['evaluate', 'evaluateAsync'], { waitForChartReady: _waitForChartReady });
 
 function buildGraphicsJS(collectionName, mapKey, filter) {
   return `
@@ -463,8 +464,22 @@ export async function getQuote({ symbol, _deps } = {}) {
   return result;
 }
 
-export async function getDepth({ _deps } = {}) {
-  const { evaluate } = _resolve(_deps);
+export async function getDepth({ symbol, _deps } = {}) {
+  if (!symbol || !String(symbol).trim()) throw new Error('symbol is required');
+  const { evaluate, evaluateAsync, waitForChartReady } = _resolve(_deps);
+  const current = await evaluate(`${CHART_API}.symbol()`);
+  if (symbol !== current) {
+    await evaluateAsync(`
+      (function() {
+        var chart = ${CHART_API};
+        return new Promise(function(resolve) {
+          chart.setSymbol(${safeString(symbol)}, {});
+          setTimeout(resolve, 500);
+        });
+      })()
+    `);
+    await waitForChartReady(symbol);
+  }
   const data = await evaluate(`
     (function() {
       var domPanel = document.querySelector('[class*="depth"]')
