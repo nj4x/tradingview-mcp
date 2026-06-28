@@ -5,12 +5,14 @@ import { TvError } from './TvError.js';
 const MAX_TABS = Math.max(1, Number(process.env.TV_MCP_MAX_TABS || 3));
 const TAB_TIMEOUT_MS = Number(process.env.TV_MCP_TAB_TIMEOUT_MS || 20000);
 const DRAIN_TIMEOUT_MS = Number(process.env.TV_MCP_DRAIN_TIMEOUT_MS || 8000);
+const WORKER_TTL_MS = Number(process.env.TV_MCP_WORKER_TTL_MS ?? 300000);
 
 export class CdpPool {
   /**
-   * @param {{ tabModule: object, discovery?: object, maxTabs?: number }} deps
-   *   tabModule  = core/tab.js (for Cmd+T fallback); injectable for tests
-   *   discovery  = cdpDiscovery (injectable for tests)
+   * @param {{ tabModule: object, discovery?: object, maxTabs?: number, workerTtlMs?: number }} deps
+   *   tabModule   = core/tab.js (for Cmd+T fallback); injectable for tests
+   *   discovery   = cdpDiscovery (injectable for tests)
+   *   workerTtlMs = idle-worker TTL in ms; 0 disables; default: TV_MCP_WORKER_TTL_MS (5 min)
    */
   constructor(deps = {}) {
     this.maxTabs = deps.maxTabs || MAX_TABS;
@@ -28,10 +30,19 @@ export class CdpPool {
     this._createdTargetIds = new Set(); // self-made tabs to close on drain (OPS-2)
     this._replayLock = null;  // null | { tabId, waiters: [] }  (I-4 global exclusive)
     this._draining = false;
+    this._workerTtlMs = deps.workerTtlMs != null ? Number(deps.workerTtlMs) : WORKER_TTL_MS;
+    this._ttlTimer = null;
+    this._startTtlScanner();
   }
 
   // size counts idle + leased + in-flight creations so capacity checks are race-free.
   get size() { return this._idle.length + this._used.size + this._pendingCount; }
+
+  /** Centralized idle push: stamps idleSince so the TTL scanner can evict stale workers. */
+  _pushIdle(conn) {
+    conn.idleSince = Date.now();
+    this._idle.push(conn);
+  }
 
   /**
    * Ensure the primary (visible) tab exists and return it. Adopts the first existing
@@ -65,7 +76,7 @@ export class CdpPool {
           // Adopt the first existing user tab as primary. NOT self-created → never closed.
           this._primary = await this._discovery.attach(targets[0], { role: 'primary' });
           this._wireDisconnect(this._primary);
-          this._idle.push(this._primary);
+          this._pushIdle(this._primary);
           return this._primary;
         }
         // No tab at all → create one, counting it against capacity (I-1).
@@ -78,7 +89,7 @@ export class CdpPool {
           // must never be auto-closed on drain (OPS-2 / T-NEW-12).
           this._primary = conn;
           this._wireDisconnect(conn);
-          this._idle.push(conn);
+          this._pushIdle(conn);
           return conn;
         } finally {
           this._pendingCount -= 1;
@@ -174,7 +185,7 @@ export class CdpPool {
         });
       this._createdTargetIds.add(createdTargetId); // OPS-2: track for cleanup
       this._wireDisconnect(conn);
-      this._idle.push(conn);
+      this._pushIdle(conn);
       return this._take(conn, 'headless');
     } catch (err) {
       // The create failed; reject the head UNTARGETED waiter so it doesn't starve (I-3).
@@ -190,6 +201,7 @@ export class CdpPool {
     if (i >= 0) this._idle.splice(i, 1);
     this._used.add(conn);
     conn.route = route;
+    conn.idleSince = null;
     return conn;
   }
 
@@ -253,7 +265,7 @@ export class CdpPool {
         });
       this._createdTargetIds.add(createdTargetId); // OPS-2: track for cleanup
       this._wireDisconnect(conn);
-      this._idle.push(conn);
+      this._pushIdle(conn);
       this._serviceWaiters(); // oldest compatible waiter claims it
     } catch (err) {
       // The replacement create failed → surface to the head untargeted waiter (I-3).
@@ -297,7 +309,7 @@ export class CdpPool {
       return;
     }
 
-    this._idle.push(conn);
+    this._pushIdle(conn);
     this._serviceWaiters();
   }
 
@@ -335,6 +347,30 @@ export class CdpPool {
     });
   }
 
+  /** Start the background TTL scanner. Idempotent; no-op when TTL is disabled (0). */
+  _startTtlScanner() {
+    if (!this._workerTtlMs || this._ttlTimer) return;
+    const interval = Math.min(this._workerTtlMs, 30000);
+    this._ttlTimer = setInterval(() => this._evictStaleWorkers(), interval);
+    if (this._ttlTimer?.unref) this._ttlTimer.unref(); // don't block process exit
+  }
+
+  /** Evict idle workers whose idleSince age exceeds _workerTtlMs. Never evicts primary. */
+  _evictStaleWorkers() {
+    if (!this._workerTtlMs) return;
+    const now = Date.now();
+    for (let i = this._idle.length - 1; i >= 0; i--) {
+      const conn = this._idle[i];
+      if (conn.role === 'primary') continue;
+      if (conn.idleSince == null) continue;
+      if (now - conn.idleSince < this._workerTtlMs) continue;
+      this._idle.splice(i, 1);
+      this._createdTargetIds.delete(conn.id);
+      conn.dispose().catch(() => {});
+      this._discovery.closeTarget(conn.id).catch(() => {});
+    }
+  }
+
   /**
    * Graceful shutdown. Stop accepting new acquires, wait up to deadlineMs for leased
    * ops to return, then FORCE-close anything still leased (I-6). Always resolves.
@@ -342,6 +378,7 @@ export class CdpPool {
    */
   async drain(deadlineMs = DRAIN_TIMEOUT_MS) {
     this._draining = true;
+    if (this._ttlTimer) { clearInterval(this._ttlTimer); this._ttlTimer = null; }
 
     // Reject queued waiters immediately — they can't be served during shutdown.
     for (const w of this._waiters.splice(0)) {

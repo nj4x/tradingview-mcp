@@ -338,6 +338,9 @@ Pool env flags:
 | `TV_MCP_REPLAY_EXPIRY_MS` | `600000` | Idle auto-expiry for a forgotten replay session (releases the global lock). |
 | `TV_MCP_STRICT_DI` | _(unset)_ | `=1` → resolver throws on a missing `_deps` instead of falling back to the singleton (CI/DI gate). |
 | `TV_MCP_POOL` | _(unset)_ | `=0` → **bypass the pool**, use the legacy `getClient()` singleton (rollback lever). |
+| `TV_MCP_WORKER_TTL_MS` | `300000` | Idle-worker tab TTL in ms (default 5 min). `=0` disables TTL eviction. Worker tabs idle longer than this are closed automatically; the primary (adopted user tab) is never evicted. |
 
 The CLI is unaffected by the pool — it runs one command and exits on the legacy singleton,
 regardless of `TV_MCP_POOL`.
+
+`npm run test:ctool` — concurrent multi-tool integration tests (CT-1..CT-5). Requires live TradingView on `--remote-debugging-port=9222`. Tests prove simultaneous operations on distinct tabs (CT-1/CT-2), tab reuse (CT-3), and TTL-based idle eviction (CT-4/CT-5). All tests use private pool instances — no global singleton is touched.

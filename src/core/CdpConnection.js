@@ -26,6 +26,7 @@ export class CdpConnection extends EventEmitter {
     this.evalTimeoutMs = opts.evalTimeoutMs || DEFAULT_EVAL_TIMEOUT;
     this.dead = false;
     this.route = null;          // set by the pool while leased: 'visible'|'headless'|{tabId}
+    this.idleSince = null;      // Date.now() when in pool._idle; null while leased
     this._chain = Promise.resolve(); // serial queue tail
     this._depth = 0;            // outstanding queued ops; chain resets to fresh when 0
 

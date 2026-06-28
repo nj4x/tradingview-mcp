@@ -273,4 +273,74 @@ describe('CdpPool', () => {
     assert.equal(primary.id, 'primary');
     assert.equal(state.createCalls, 0, 'adopted after transient failures, never created');
   });
+
+  // ── TTL eviction (offline) ────────────────────────────────────────────────
+
+  it('TTL: _pushIdle stamps idleSince; _take clears it', async () => {
+    const { pool } = newPool({ existingTargets: ['primary'] });
+    await pool.ensurePrimary();
+
+    // Primary lands in _idle via _pushIdle; idleSince should be stamped
+    const primary = pool._idle[0];
+    assert.ok(primary.idleSince > 0, 'primary idleSince stamped by _pushIdle');
+
+    // acquire (via _take) clears it
+    const c = await pool.acquire('visible');
+    assert.equal(c.idleSince, null, 'idleSince cleared on lease');
+
+    // release returns it to idle via _pushIdle
+    pool.release(c);
+    assert.ok(pool._idle[0].idleSince > 0, 'idleSince re-stamped after release');
+  });
+
+  it('TTL: _evictStaleWorkers removes idle workers past TTL, never primary', async () => {
+    const { pool, state } = newPool({ existingTargets: ['primary'] }, { maxTabs: 3, workerTtlMs: 100 });
+    await pool.ensurePrimary();
+
+    // Grow a worker into idle (park primary first so headless actually grows)
+    const vis = await pool.acquire('visible');
+    const w = await pool.acquire('headless');
+    const workerId = w.id;
+    pool.release(w);    // worker goes idle with idleSince = now
+    pool.release(vis);
+
+    // Force idleSince to be stale
+    pool._idle.find(c => c.id === workerId).idleSince = Date.now() - 1000;
+
+    // Call evict directly
+    pool._evictStaleWorkers();
+
+    assert.ok(!pool._idle.some(c => c.id === workerId), 'stale worker removed from idle');
+    assert.ok(!pool._createdTargetIds.has(workerId), 'stale worker removed from createdTargetIds');
+    assert.ok(state.closed.includes(workerId), 'closeTarget called for stale worker');
+
+    // Primary must survive
+    assert.ok(pool._idle.some(c => c.id === 'primary'), 'primary still in idle');
+  });
+
+  it('TTL: primary is never evicted even when idleSince is stale', async () => {
+    const { pool } = newPool({ existingTargets: ['primary'] }, { workerTtlMs: 100 });
+    await pool.ensurePrimary();
+
+    // Force primary's idleSince to be very stale
+    pool._primary.idleSince = Date.now() - 999999;
+    pool._evictStaleWorkers();
+
+    // Primary must still be in idle
+    assert.ok(pool._idle.some(c => c.id === 'primary'), 'primary not evicted');
+  });
+
+  it('TTL: drain clears the TTL timer', async () => {
+    const { pool } = newPool({ existingTargets: ['primary'] }, { workerTtlMs: 5000 });
+    await pool.ensurePrimary();
+    assert.ok(pool._ttlTimer != null, 'TTL timer started');
+    await pool.drain(100);
+    assert.equal(pool._ttlTimer, null, 'TTL timer cleared by drain');
+  });
+
+  it('TTL: workerTtlMs=0 disables the TTL scanner', async () => {
+    const { pool } = newPool({ existingTargets: ['primary'] }, { workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    assert.equal(pool._ttlTimer, null, 'no timer started when TTL=0');
+  });
 });
