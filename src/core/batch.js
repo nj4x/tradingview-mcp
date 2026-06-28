@@ -1,11 +1,9 @@
 /**
  * Core batch execution logic.
  */
-import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, getClient, getChartApi, getChartCollection, safeString } from '../connection.js';
+import { getClient, KNOWN_PATHS, safeString } from '../connection.js';
 import { makeResolver } from './_resolve.js';
 import { waitForChartReady } from '../wait.js';
-
-const _resolve = makeResolver(['evaluate', 'evaluateAsync']);
 import { writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -13,15 +11,33 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCREENSHOT_DIR = join(dirname(dirname(__dirname)), 'screenshots');
 
+// Singleton fallback: Page.captureScreenshot on the legacy singleton client.
+const _captureScreenshot = async (params) => {
+  const c = await getClient();
+  return c.Page.captureScreenshot(params ?? {});
+};
+
+// Probe whether a path exists on the current tab using the injected evaluate.
+async function probeForPath(path, evaluate) {
+  try {
+    const ok = await evaluate(`typeof (${path}) !== 'undefined' && (${path}) !== null`);
+    return ok ? path : null;
+  } catch { return null; }
+}
+
+const _resolve = makeResolver(['evaluate', 'evaluateAsync'], {
+  captureScreenshot: _captureScreenshot,
+});
+
 export async function batchRun({ symbols, timeframes, action, delay_ms, ohlcv_count, _deps }) {
-  const { evaluate, evaluateAsync } = _resolve(_deps);
+  const { evaluate, evaluateAsync, captureScreenshot } = _resolve(_deps);
   const tfs = timeframes && timeframes.length > 0 ? timeframes : [null];
   const delay = delay_ms || 2000;
   const results = [];
 
-  let colPath, apiPath;
-  try { colPath = await getChartCollection(); } catch {}
-  try { apiPath = await getChartApi(); } catch {}
+  // Probe which API path is reachable on THIS tab (injected evaluate, not the singleton).
+  const colPath = await probeForPath(KNOWN_PATHS.chartWidgetCollection, evaluate);
+  const apiPath = await probeForPath(KNOWN_PATHS.chartApi, evaluate);
 
   for (const symbol of symbols) {
     for (const tf of tfs) {
@@ -41,11 +57,10 @@ export async function batchRun({ symbols, timeframes, action, delay_ms, ohlcv_co
         let actionResult;
         if (action === 'screenshot') {
           mkdirSync(SCREENSHOT_DIR, { recursive: true });
-          const client = await getClient();
-          const { data } = await client.Page.captureScreenshot({ format: 'png' });
           const ts = new Date().toISOString().replace(/[:.]/g, '-');
           const fname = `batch_${symbol}_${tf || 'default'}_${ts}`.replace(/[\/\\]/g, '_') + '.png';
           const filePath = join(SCREENSHOT_DIR, fname);
+          const { data } = await captureScreenshot({ format: 'png' });
           writeFileSync(filePath, Buffer.from(data, 'base64'));
           actionResult = { file_path: filePath };
         } else if (action === 'get_ohlcv' && apiPath) {

@@ -49,4 +49,22 @@ describe('withTab', () => {
     const out = await withTab((deps) => deps.evaluate(), { route: 'visible', connection: fakeConn });
     assert.equal(out, 'v');
   });
+
+  it('depsFor exposes a no-op-safe setSymbolHint bound to the connection', async () => {
+    let hinted = null;
+    const fakeConn = {
+      evaluate: () => Promise.resolve('v'),
+      evaluateAsync: () => Promise.resolve('v'),
+      setSymbolHint: (s) => { hinted = s; },
+    };
+    let injected;
+    await withTab((deps) => { injected = deps; deps.setSymbolHint('ES1!'); return 'ok'; },
+      { connection: fakeConn });
+    assert.equal(typeof injected.setSymbolHint, 'function');
+    assert.equal(hinted, 'ES1!', 'setSymbolHint forwards to conn.setSymbolHint');
+
+    // No-op safe when the connection lacks setSymbolHint (optional-chaining guard).
+    const bare = { evaluate: () => Promise.resolve('v'), evaluateAsync: () => Promise.resolve('v') };
+    await withTab((deps) => deps.setSymbolHint('NQ1!'), { connection: bare });
+  });
 });

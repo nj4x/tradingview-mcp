@@ -137,6 +137,58 @@ describe('fetchOhlcv() — chart_fetch_ohlcv', () => {
   it('requires a symbol', async () => {
     await assert.rejects(() => fetchOhlcv({ _deps: { evaluate: async () => ({}) } }), /symbol is required/);
   });
+
+  it('stamps hint only after successful setSymbol (not before)', async () => {
+    const order = [];
+    // Current symbol differs → a switch must happen before the hint is recorded.
+    const evaluate = async (expr) => {
+      if (expr.includes('chart.symbol()') && expr.includes('chart.resolution()')) {
+        return { symbol: 'AAPL', resolution: 'D' };
+      }
+      if (expr.includes('var bars =')) {
+        return { bars: [{ time: 1, open: 1, high: 2, low: 0, close: 1, volume: 5 }], total_bars: 1 };
+      }
+      return undefined;
+    };
+    const evaluateAsync = async (expr) => {
+      if (expr.includes('setSymbol')) order.push('setSymbol');
+      return undefined;
+    };
+    const waitForChartReady = async () => true;
+    const setSymbolHint = () => { order.push('setSymbolHint'); };
+
+    const res = await fetchOhlcv({ symbol: 'MSFT', _deps: { evaluate, evaluateAsync, waitForChartReady, setSymbolHint } });
+    assert.equal(res.symbol_changed, true);
+    // The hint must be stamped only AFTER the symbol switch completes.
+    const switchIdx = order.indexOf('setSymbol');
+    const hintIdx = order.indexOf('setSymbolHint');
+    assert.ok(switchIdx >= 0, 'setSymbol was invoked');
+    assert.ok(hintIdx >= 0, 'setSymbolHint was invoked');
+    assert.ok(hintIdx > switchIdx, 'setSymbolHint is called AFTER setSymbol, not before');
+  });
+
+  it('does NOT stamp hint when setSymbol throws', async () => {
+    let hintCalls = 0;
+    const evaluate = async (expr) => {
+      if (expr.includes('chart.symbol()') && expr.includes('chart.resolution()')) {
+        return { symbol: 'AAPL', resolution: 'D' };
+      }
+      return undefined;
+    };
+    // setSymbol's underlying evaluateAsync throws → the switch fails.
+    const evaluateAsync = async (expr) => {
+      if (expr.includes('setSymbol')) throw new Error('boom: setSymbol failed');
+      return undefined;
+    };
+    const waitForChartReady = async () => true;
+    const setSymbolHint = () => { hintCalls++; };
+
+    await assert.rejects(
+      () => fetchOhlcv({ symbol: 'MSFT', _deps: { evaluate, evaluateAsync, waitForChartReady, setSymbolHint } }),
+      /setSymbol failed/,
+    );
+    assert.equal(hintCalls, 0, 'setSymbolHint never called when the switch throws');
+  });
 });
 
 describe('deploy() — pine_deploy', () => {

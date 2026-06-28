@@ -2,7 +2,7 @@
 import * as discovery from './cdpDiscovery.js';
 import { TvError } from './TvError.js';
 
-const MAX_TABS = Math.max(1, Number(process.env.TV_MCP_MAX_TABS || 3));
+const MAX_TABS = Math.max(1, Number(process.env.TV_MCP_MAX_TABS || 5));
 const TAB_TIMEOUT_MS = Number(process.env.TV_MCP_TAB_TIMEOUT_MS || 20000);
 const DRAIN_TIMEOUT_MS = Number(process.env.TV_MCP_DRAIN_TIMEOUT_MS || 8000);
 const WORKER_TTL_MS = Number(process.env.TV_MCP_WORKER_TTL_MS ?? 300000);
@@ -74,9 +74,13 @@ export class CdpPool {
         const targets = await this._discovery.listChartTargets();
         if (targets.length > 0) {
           // Adopt the first existing user tab as primary. NOT self-created → never closed.
-          this._primary = await this._discovery.attach(targets[0], { role: 'primary' });
-          this._wireDisconnect(this._primary);
-          this._pushIdle(this._primary);
+          const primary = await this._discovery.attach(targets[0], { role: 'primary' });
+          primary.adopted = true; // adopted user tab → never auto-closed (drain/TTL)
+          this._primary = primary;
+          this._wireDisconnect(primary);
+          this._pushIdle(primary);
+          // Feature 1: inventory the remaining existing tabs as adopted workers (up to cap).
+          await this._adoptExistingWorkers(targets.slice(1));
           return this._primary;
         }
         // No tab at all → create one, counting it against capacity (I-1).
@@ -103,6 +107,27 @@ export class CdpPool {
     throw TvError.from(lastErr, 'CDP_DOWN');
   }
 
+  /**
+   * Feature 1: adopt already-open user chart tabs as idle workers, up to maxTabs.
+   * Adopted workers are NOT added to _createdTargetIds and carry `adopted = true`,
+   * so drain() and TTL eviction never close them — only tabs we created get closed.
+   * A tab that vanishes mid-inventory (attach throws) is silently skipped.
+   */
+  async _adoptExistingWorkers(targets) {
+    for (const t of targets) {
+      if (this.size >= this.maxTabs) break;
+      if (this._idle.some(c => c.id === t.id)) continue;
+      if ([...this._used].some(c => c.id === t.id)) continue;
+      try {
+        const conn = await this._discovery.attach(t, { role: 'worker' });
+        conn.adopted = true;
+        this._wireDisconnect(conn);
+        this._pushIdle(conn);
+        // NOT added to _createdTargetIds → drain never closes a user tab.
+      } catch { /* tab vanished mid-inventory → skip */ }
+    }
+  }
+
   _wireDisconnect(conn) {
     conn.once('disconnect', () => {
       conn.dead = true;
@@ -125,7 +150,7 @@ export class CdpPool {
    * on the replay lock) until replay_stop releases it — EXCEPT an acquire for the
    * replay-owning tabId, which proceeds. New acquires don't fail, they wait.
    */
-  async acquire(route = 'headless') {
+  async acquire(route = 'headless', opts = {}) {
     if (this._draining) {
       throw new TvError('POOL_DRAINING', 'pool is shutting down');
     }
@@ -136,13 +161,13 @@ export class CdpPool {
       const targetsOwner = isTabRoute(route) && route.tabId === ownerId;
       if (!targetsOwner) {
         await this._waitForReplayRelease();  // block, then retry same route
-        return this.acquire(route);
+        return this.acquire(route, opts);
       }
     }
 
     if (route === 'visible') return this._acquireVisible();
     if (isTabRoute(route)) return this._acquirePinned(route.tabId);
-    return this._acquireHeadless();
+    return this._acquireHeadless(opts);
   }
 
   async _acquireVisible() {
@@ -162,7 +187,17 @@ export class CdpPool {
       `pinned tab ${tabId} is not idle, leased, or pending`, { meta: { tabId } }));
   }
 
-  async _acquireHeadless() {
+  async _acquireHeadless(opts = {}) {
+    const symbol = opts.symbol ? String(opts.symbol) : null;
+
+    // Feature 2 (symbol affinity): prefer an idle NON-PRIMARY worker already on the
+    // wanted symbol. Affinity applies to workers only — never steal the user's visible
+    // primary for a headless op. If no worker matches, fall through to normal selection.
+    if (symbol) {
+      const workerMatch = this._idle.find(c => c.role !== 'primary' && c.symbol === symbol);
+      if (workerMatch) return this._take(workerMatch, 'headless');
+    }
+
     // Prefer a non-primary idle worker; fall back to any idle (incl. primary).
     const worker = this._idle.find(c => c.role !== 'primary') || this._idle[0];
     if (worker) return this._take(worker, 'headless');
@@ -170,8 +205,8 @@ export class CdpPool {
     // Grow if we have headroom (I-1: _pendingCount is part of size).
     if (this.size < this.maxTabs) return this._growHeadless();
 
-    // At capacity → queue an untargeted waiter.
-    return this._enqueueWaiter('headless', null);
+    // At capacity → queue an untargeted waiter (carries symbol for affinity on release).
+    return this._enqueueWaiter('headless', null, symbol);
   }
 
   /** Create a new worker tab, counting it against capacity the whole time (I-1). */
@@ -205,9 +240,9 @@ export class CdpPool {
     return conn;
   }
 
-  _enqueueWaiter(route, wantId) {
+  _enqueueWaiter(route, wantId, symbol = null) {
     return new Promise((resolve, reject) => {
-      const waiter = { route, wantId, resolve, reject, timer: null };
+      const waiter = { route, wantId, symbol, resolve, reject, timer: null };
       waiter.timer = setTimeout(() => {
         const idx = this._waiters.indexOf(waiter);
         if (idx >= 0) this._waiters.splice(idx, 1);
@@ -234,7 +269,13 @@ export class CdpPool {
 
   _matchIdle(w) {
     if (w.wantId) return this._idle.find(c => c.id === w.wantId) || null;
-    // Untargeted (headless): prefer a worker, else any idle.
+    // Untargeted (headless): symbol affinity prefers a NON-PRIMARY worker on the wanted
+    // symbol; never steal the visible primary for affinity. Else prefer any worker,
+    // else fall back to any idle (incl. primary) as a last resort.
+    if (w.symbol) {
+      const workerMatch = this._idle.find(c => c.role !== 'primary' && c.symbol === w.symbol);
+      if (workerMatch) return workerMatch;
+    }
     return this._idle.find(c => c.role !== 'primary') || this._idle[0] || null;
   }
 
@@ -362,6 +403,7 @@ export class CdpPool {
     for (let i = this._idle.length - 1; i >= 0; i--) {
       const conn = this._idle[i];
       if (conn.role === 'primary') continue;
+      if (conn.adopted) continue; // adopted user tabs are never auto-closed
       if (conn.idleSince == null) continue;
       if (now - conn.idleSince < this._workerTtlMs) continue;
       this._idle.splice(i, 1);
@@ -409,8 +451,11 @@ export class CdpPool {
     await Promise.all(all.map(c => c.dispose().catch(() => {})));
 
     // OPS-2: close ONLY browser tabs WE created. Never the adopted primary/user tabs.
-    await Promise.all([...this._createdTargetIds].map(id =>
-      this._discovery.closeTarget(id).catch(() => {})));
+    // Adopted tabs are never in _createdTargetIds, but guard defensively anyway.
+    const adoptedIds = new Set(all.filter(c => c.adopted).map(c => c.id));
+    await Promise.all([...this._createdTargetIds]
+      .filter(id => !adoptedIds.has(id))
+      .map(id => this._discovery.closeTarget(id).catch(() => {})));
     this._createdTargetIds.clear();
     this._primary = null;
     this._replayLock = null;

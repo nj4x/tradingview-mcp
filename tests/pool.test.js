@@ -26,9 +26,12 @@ class FakeConn extends EventEmitter {
     this.dead = false;
     this.route = null;
     this.disposed = false;
+    this.adopted = false;
+    this.symbol = null;
   }
   evaluate() { return Promise.resolve(1); }
   evaluateAsync() { return Promise.resolve(1); }
+  setSymbolHint(s) { if (s) this.symbol = String(s); }
   async dispose() { this.disposed = true; this.dead = true; }
   // simulate a CDP-level drop
   kill() { this.dead = true; this.emit('disconnect', 'test-kill'); }
@@ -46,7 +49,8 @@ function makeDiscovery(opts = {}) {
     listCalls: 0,
     createCalls: 0,
   };
-  const existing = (opts.existingTargets || []).map(id => ({ id, url: 'https://www.tradingview.com/chart/x', title: 't' }));
+  const existingIds = opts.existingTargets || ['tab0'];
+  const existing = existingIds.map(id => ({ id, url: 'https://www.tradingview.com/chart/x', title: 't' }));
   const discovery = {
     async listChartTargets() {
       state.listCalls += 1;
@@ -56,6 +60,10 @@ function makeDiscovery(opts = {}) {
       return existing.slice();
     },
     async attach(target, { role = 'worker' } = {}) {
+      // Let a test simulate a tab vanishing mid-inventory (attach throws for given ids).
+      if (opts.attachThrowsFor && opts.attachThrowsFor.includes(target.id)) {
+        throw new TvError('CDP_DOWN', `attach failed for ${target.id} (test)`);
+      }
       return new FakeConn({ role, id: target.id });
     },
     async createNewTarget() {
@@ -291,6 +299,8 @@ describe('CdpPool', () => {
     // release returns it to idle via _pushIdle
     pool.release(c);
     assert.ok(pool._idle[0].idleSince > 0, 'idleSince re-stamped after release');
+
+    await pool.drain(50); // stop the TTL scanner interval started in the ctor
   });
 
   it('TTL: _evictStaleWorkers removes idle workers past TTL, never primary', async () => {
@@ -316,6 +326,8 @@ describe('CdpPool', () => {
 
     // Primary must survive
     assert.ok(pool._idle.some(c => c.id === 'primary'), 'primary still in idle');
+
+    await pool.drain(50); // stop the TTL scanner interval started in the ctor
   });
 
   it('TTL: primary is never evicted even when idleSince is stale', async () => {
@@ -328,6 +340,8 @@ describe('CdpPool', () => {
 
     // Primary must still be in idle
     assert.ok(pool._idle.some(c => c.id === 'primary'), 'primary not evicted');
+
+    await pool.drain(50); // stop the TTL scanner interval started in the ctor
   });
 
   it('TTL: drain clears the TTL timer', async () => {
@@ -342,5 +356,176 @@ describe('CdpPool', () => {
     const { pool } = newPool({ existingTargets: ['primary'] }, { workerTtlMs: 0 });
     await pool.ensurePrimary();
     assert.equal(pool._ttlTimer, null, 'no timer started when TTL=0');
+  });
+
+  // ── Feature 1: tab inventory on first connect ─────────────────────────────
+
+  it('inventory: adopts all existing tabs up to maxTabs', async () => {
+    const { pool, state } = newPool({ existingTargets: ['a', 'b', 'c'] }, { maxTabs: 3, workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    assert.equal(pool.size, 3, 'all three existing tabs adopted');
+    assert.equal(state.createCalls, 0, 'inventory adopts, never creates');
+    assert.equal(pool._primary.id, 'a');
+  });
+
+  it('inventory: respects maxTabs cap', async () => {
+    const { pool } = newPool({ existingTargets: ['a', 'b', 'c', 'd'] }, { maxTabs: 2, workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    assert.equal(pool.size, 2, 'capped at maxTabs=2 (primary + 1 worker)');
+  });
+
+  it('inventory: adopted workers not in _createdTargetIds', async () => {
+    const { pool } = newPool({ existingTargets: ['a', 'b', 'c'] }, { maxTabs: 3, workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    assert.equal(pool._createdTargetIds.size, 0, 'adopted tabs are never self-created');
+  });
+
+  it('inventory: drain never closes adopted workers', async () => {
+    const { pool, state } = newPool({ existingTargets: ['a', 'b', 'c'] }, { maxTabs: 3, workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    await pool.drain(50);
+    assert.equal(state.closed.length, 0, 'no adopted tab closed on drain');
+  });
+
+  it('inventory: TTL eviction skips adopted workers', async () => {
+    const { pool, state } = newPool({ existingTargets: ['a', 'b'] }, { maxTabs: 3, workerTtlMs: 100 });
+    await pool.ensurePrimary();
+    const worker = pool._idle.find(c => c.id === 'b');
+    assert.ok(worker && worker.adopted, 'b adopted as worker');
+    worker.idleSince = Date.now() - 999999; // force stale
+    pool._evictStaleWorkers();
+    assert.ok(pool._idle.some(c => c.id === 'b'), 'adopted worker still idle (not evicted)');
+    assert.ok(!state.closed.includes('b'), 'closeTarget not called for adopted worker');
+
+    await pool.drain(50); // stop the TTL scanner interval started in the ctor
+  });
+
+  it('inventory: failed attach mid-inventory is skipped', async () => {
+    // primary 'a' adopts fine; worker 'b' attach throws; 'c' still adopts.
+    const { pool } = newPool(
+      { existingTargets: ['a', 'b', 'c'], attachThrowsFor: ['b'] },
+      { maxTabs: 3, workerTtlMs: 0 },
+    );
+    const primary = await pool.ensurePrimary();
+    assert.equal(primary.id, 'a', 'primary adopted despite a later attach failure');
+    assert.ok(!pool._idle.some(c => c.id === 'b'), 'failed tab skipped');
+    assert.ok(pool._idle.some(c => c.id === 'c'), 'subsequent tab still adopted');
+    // pool is still usable
+    const vis = await pool.acquire('visible');
+    assert.equal(vis.id, 'a');
+    pool.release(vis);
+  });
+
+  it('inventory: default maxTabs is now 5', async () => {
+    const { pool } = newPool({ existingTargets: ['primary'] }, { workerTtlMs: 0 });
+    assert.equal(pool.maxTabs, 5, 'default maxTabs bumped 3 → 5');
+  });
+
+  // ── Feature 2: symbol affinity routing ────────────────────────────────────
+
+  it('affinity: prefers idle tab already on matching symbol', async () => {
+    const { pool } = newPool({ existingTargets: ['primary'] }, { maxTabs: 4, workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    const vis = await pool.acquire('visible');      // park primary
+    const es = await pool.acquire('headless');      // worker 1
+    const nq = await pool.acquire('headless');      // worker 2
+    es.setSymbolHint('ES1!'); nq.setSymbolHint('NQ1!');
+    pool.release(es); pool.release(nq); pool.release(vis);
+
+    const got = await pool.acquire('headless', { symbol: 'NQ1!' });
+    assert.equal(got.id, nq.id, 'returns the NQ-affine tab');
+    pool.release(got);
+  });
+
+  it('affinity: falls back to normal pick when no symbol match (no growth)', async () => {
+    const { pool, state } = newPool({ existingTargets: ['primary'] }, { maxTabs: 4, workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    const vis = await pool.acquire('visible');
+    const es = await pool.acquire('headless');
+    const spy = await pool.acquire('headless');
+    es.setSymbolHint('ES1!'); spy.setSymbolHint('SPY');
+    pool.release(es); pool.release(spy); pool.release(vis);
+
+    const createsBefore = state.createCalls;
+    const got = await pool.acquire('headless', { symbol: 'CL1!' });
+    assert.ok([es.id, spy.id].includes(got.id), 'reuses an existing idle worker');
+    assert.equal(state.createCalls, createsBefore, 'no new tab grown for an unmatched symbol');
+    pool.release(got);
+  });
+
+  it('affinity: prefers worker match over primary match', async () => {
+    const { pool } = newPool({ existingTargets: ['primary'] }, { maxTabs: 4, workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    const vis = await pool.acquire('visible');
+    const worker = await pool.acquire('headless');
+    worker.setSymbolHint('ES1!');
+    pool.release(worker);
+    pool._primary.setSymbolHint('ES1!'); // both primary and worker on ES1!
+    pool.release(vis);
+
+    const got = await pool.acquire('headless', { symbol: 'ES1!' });
+    assert.equal(got.id, worker.id, 'worker match wins over primary match');
+    assert.notEqual(got.id, 'primary');
+    pool.release(got);
+  });
+
+  it('affinity: never exceeds maxTabs chasing a symbol', async () => {
+    const { pool } = newPool({ existingTargets: ['primary'] }, { maxTabs: 2, workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    const a = await pool.acquire('headless'); // primary
+    const b = await pool.acquire('headless'); // worker (at cap now)
+    a.setSymbolHint('ES1!'); b.setSymbolHint('NQ1!');
+    let resolved = null;
+    const waiter = pool.acquire('headless', { symbol: 'CL1!' }).then(c => { resolved = c; });
+    await new Promise(r => setTimeout(r, 5));
+    assert.equal(resolved, null, 'queues at capacity rather than growing for the symbol');
+    assert.ok(pool.size <= 2, 'never exceeds maxTabs');
+    pool.release(a);
+    await waiter;
+    assert.ok(resolved, 'waiter served once a tab freed');
+    pool.release(resolved); pool.release(b);
+  });
+
+  it('affinity: queued waiter gets symbol-matching tab on release', async () => {
+    const { pool } = newPool({ existingTargets: ['primary'] }, { maxTabs: 3, workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    const vis = await pool.acquire('visible');         // primary leased
+    const es = await pool.acquire('headless');         // worker es
+    const nq = await pool.acquire('headless');         // worker nq (at cap=3)
+    es.setSymbolHint('ES1!'); nq.setSymbolHint('NQ1!');
+
+    let resolved = null;
+    const waiter = pool.acquire('headless', { symbol: 'NQ1!' }).then(c => { resolved = c; });
+    await new Promise(r => setTimeout(r, 5));
+    assert.equal(resolved, null, 'parked at capacity');
+
+    // Release the symbol-matching tab (nq); the waiter must be handed exactly that tab.
+    pool.release(nq);
+    await waiter;
+    assert.equal(resolved.id, nq.id, 'waiter received the NQ-affine tab');
+    pool.release(resolved); pool.release(es); pool.release(vis);
+  });
+
+  it('affinity: setSymbolHint updates cache for next acquire', async () => {
+    const { pool } = newPool({ existingTargets: ['primary'] }, { maxTabs: 3, workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    const vis = await pool.acquire('visible');
+    const w = await pool.acquire('headless');
+    w.setSymbolHint('CL1!');
+    pool.release(w); pool.release(vis);
+    const got = await pool.acquire('headless', { symbol: 'CL1!' });
+    assert.equal(got.id, w.id, 'cached symbol drives the next affine acquire');
+    pool.release(got);
+  });
+
+  it('affinity: backward compat — acquire without symbol behaves as before', async () => {
+    const { pool } = newPool({ existingTargets: ['primary'] }, { maxTabs: 3, workerTtlMs: 0 });
+    await pool.ensurePrimary();
+    const vis = await pool.acquire('visible');
+    assert.equal(vis.id, 'primary');
+    const w = await pool.acquire('headless'); // grows/uses a non-primary worker
+    assert.notEqual(w.id, 'primary');
+    assert.equal(w.role, 'worker');
+    pool.release(vis); pool.release(w);
   });
 });

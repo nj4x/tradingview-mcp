@@ -89,7 +89,7 @@ export function registerChartTools(server) {
     symbol: z.string().describe('Symbol to inspect (e.g., "AAPL", "ES1!", "NYMEX:CL1!")'),
   }, async ({ symbol }) => {
     try {
-      const out = await withTab((deps) => core.symbolInfo({ symbol, _deps: deps }), { route: 'headless' });
+      const out = await withTab((deps) => core.symbolInfo({ symbol, _deps: deps }), { route: 'headless', symbol });
       return jsonResult(out);
     } catch (err) { return fail(err); }
   });
@@ -132,7 +132,7 @@ export function registerChartTools(server) {
     summary: z.boolean().optional().describe('Return compact summary stats instead of all bars (recommended)'),
   }, async ({ symbol, timeframe, count, summary }) => {
     try {
-      const out = await withTab((deps) => core.fetchOhlcv({ symbol, timeframe, count, summary, _deps: deps }), { route: 'headless' });
+      const out = await withTab((deps) => core.fetchOhlcv({ symbol, timeframe, count, summary, _deps: deps }), { route: 'headless', symbol });
       return jsonResult(out);
     } catch (err) { return fail(err); }
   });
@@ -141,7 +141,7 @@ export function registerChartTools(server) {
     symbol: z.string().describe('Symbol to check (e.g., "AAPL", "ES1!", "NYMEX:CL1!")'),
   }, async ({ symbol }) => {
     try {
-      const out = await withTab((deps) => core.getMarketStatus({ symbol, _deps: deps }), { route: 'headless' });
+      const out = await withTab((deps) => core.getMarketStatus({ symbol, _deps: deps }), { route: 'headless', symbol });
       return jsonResult(out);
     } catch (err) { return fail(err); }
   });

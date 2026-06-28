@@ -88,9 +88,8 @@ describe('CdpPool concurrent e2e (requires live TradingView)', {
     { skip: growSupported ? undefined : 'tab creation (PUT /json/new or window.open) not supported on this TV build',
       timeout: 60000 },
     async () => {
-      // Park the primary (idle after ensurePrimary) so both headless acquires hit
-      // an empty _idle and must each call _growHeadless → createNewTarget.
-      // PUT /json/new returns a unique id per call atomically → safe under concurrency.
+      // Park the primary (idle after ensurePrimary) so both headless acquires use
+      // non-primary worker slots, either adopted during inventory or grown on demand.
       const vis = await pool.acquire('visible');
       let a, b;
       try {
@@ -100,10 +99,15 @@ describe('CdpPool concurrent e2e (requires live TradingView)', {
         ]);
 
         assert.notEqual(a.id, b.id, 'distinct physical tabs');
-        assert.equal(a.selfCreated, true, 'a is a self-created worker');
-        assert.equal(b.selfCreated, true, 'b is a self-created worker');
-        assert.ok(pool._createdTargetIds.has(a.id), 'a tracked for cleanup');
-        assert.ok(pool._createdTargetIds.has(b.id), 'b tracked for cleanup');
+        for (const conn of [a, b]) {
+          assert.equal(conn.role, 'worker', `${conn.id} is a worker lease`);
+          if (conn.selfCreated) {
+            assert.ok(pool._createdTargetIds.has(conn.id), `${conn.id} tracked for cleanup`);
+          } else {
+            assert.equal(conn.adopted, true, `${conn.id} is an adopted pre-existing tab`);
+            assert.ok(!pool._createdTargetIds.has(conn.id), `${conn.id} not tracked as self-created`);
+          }
+        }
       } finally {
         if (a) pool.release(a);
         if (b) pool.release(b);
@@ -165,8 +169,8 @@ describe('CdpPool concurrent e2e (requires live TradingView)', {
         ]);
 
         assert.notEqual(a.id, b.id, 'different CDP targets');
-        assert.equal(a.selfCreated, true);
-        assert.equal(b.selfCreated, true);
+        assert.equal(a.role, 'worker');
+        assert.equal(b.role, 'worker');
 
         // Sequential writes: concurrent writes across connections have undefined ordering;
         // sequential writes make the round-trip assertions deterministic.
@@ -200,37 +204,49 @@ describe('CdpPool concurrent e2e (requires live TradingView)', {
       assert.ok(!pool._createdTargetIds.has(primaryId),
         'primary not in self-created set — drain must not close it');
 
-      // Park primary to force a real worker creation via headless.
+      // Park primary and lease a worker. The worker may be an adopted pre-existing tab
+      // from first-connect inventory, or a self-created tab if no adopted worker is idle.
       const vis = await pool.acquire('visible');
       const w   = await pool.acquire('headless');
       const workerId = w.id;
-      assert.equal(w.selfCreated, true, 'worker is self-created');
-      assert.ok(pool._createdTargetIds.has(workerId), 'worker tracked for cleanup');
+      const workerIsSelfCreated = w.selfCreated || pool._createdTargetIds.has(workerId);
+      if (workerIsSelfCreated) {
+        assert.ok(pool._createdTargetIds.has(workerId), 'self-created worker tracked for cleanup');
+      } else {
+        assert.equal(w.adopted, true, 'worker is an adopted pre-existing tab');
+        assert.ok(!pool._createdTargetIds.has(workerId), 'adopted worker not tracked for cleanup');
+      }
 
       pool.release(w);
       pool.release(vis);
 
       // Snapshot before drain clears the set.
       const createdBefore = new Set(pool._createdTargetIds);
-      assert.ok(createdBefore.has(workerId));
+      assert.equal(createdBefore.has(workerId), workerIsSelfCreated);
 
       await pool.drain(8000);
 
       // Primary must survive in the live target list (drain disposes the CDP connection
       // but never calls closeTarget on the primary — check the live target, not conn.dead).
-      const afterTargets = await cdpDiscovery.listChartTargets();
-      const afterIds = new Set(afterTargets.map(t => t.id));
+      let afterTargets = await cdpDiscovery.listChartTargets();
+      let afterIds = new Set(afterTargets.map(t => t.id));
       assert.ok(afterIds.has(primaryId), 'adopted primary tab still alive after drain');
 
-      // Worker must eventually disappear (DELETE /json/close is async on Electron).
-      let workerGone = false;
-      const deadline = Date.now() + 4000;
-      while (Date.now() < deadline) {
-        const live = await cdpDiscovery.listChartTargets();
-        if (!live.find(t => t.id === workerId)) { workerGone = true; break; }
-        await new Promise(r => setTimeout(r, 150));
+      if (workerIsSelfCreated) {
+        // Self-created workers must eventually disappear (DELETE /json/close is async on Electron).
+        let workerGone = false;
+        const deadline = Date.now() + 4000;
+        while (Date.now() < deadline) {
+          afterTargets = await cdpDiscovery.listChartTargets();
+          if (!afterTargets.find(t => t.id === workerId)) { workerGone = true; break; }
+          await new Promise(r => setTimeout(r, 150));
+        }
+        assert.ok(workerGone, `self-created worker ${workerId} should be closed by drain`);
+      } else {
+        afterTargets = await cdpDiscovery.listChartTargets();
+        afterIds = new Set(afterTargets.map(t => t.id));
+        assert.ok(afterIds.has(workerId), 'adopted worker tab still alive after drain');
       }
-      assert.ok(workerGone, `worker ${workerId} should be closed by drain`);
     }
   );
 });

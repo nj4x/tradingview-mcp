@@ -333,7 +333,7 @@ Pool env flags:
 
 | Var | Default | Effect |
 |-----|---------|--------|
-| `TV_MCP_MAX_TABS` | `3` | Max concurrent tabs incl. primary. `1` = serial-but-pooled. Min 1. |
+| `TV_MCP_MAX_TABS` | `5` | Max concurrent tabs incl. primary. `1` = serial-but-pooled. Min 1. On first connect the pool inventories already-open chart tabs and adopts them (up to this cap); adopted tabs are never auto-closed on drain/TTL. |
 | `TV_MCP_TAB_TIMEOUT_MS` | `20000` | How long `acquire()` queues before `POOL_EXHAUSTED`. |
 | `TV_MCP_EVAL_TIMEOUT_MS` | `15000` | Per-op `evaluate()` timeout inside a tab's serial queue. |
 | `TV_MCP_DRAIN_TIMEOUT_MS` | `8000` | `drain()` deadline before force-closing leased tabs. |
@@ -341,6 +341,14 @@ Pool env flags:
 | `TV_MCP_STRICT_DI` | _(unset)_ | `=1` → resolver throws on a missing `_deps` instead of falling back to the singleton (CI/DI gate). |
 | `TV_MCP_POOL` | _(unset)_ | `=0` → **bypass the pool**, use the legacy `getClient()` singleton (rollback lever). |
 | `TV_MCP_WORKER_TTL_MS` | `300000` | Idle-worker tab TTL in ms (default 5 min). `=0` disables TTL eviction. Worker tabs idle longer than this are closed automatically; the primary (adopted user tab) is never evicted. |
+
+**Symbol affinity (headless routing):** a `headless` acquire prefers an idle **worker**
+tab already loaded on the requested symbol, avoiding a redundant reload. Affinity applies
+to worker tabs only — the user's visible primary is never stolen for a headless op; if no
+worker matches, acquire falls through to normal worker selection (reuse, grow, or queue).
+Each connection's `conn.symbol` is updated lazily via `setSymbolHint` after `setSymbol`,
+`getState`, `fetchOhlcv`, `getMarketStatus`, and `symbolInfo` succeed (only post-success,
+so a failed switch never leaves a stale/poisoned symbol on the tab).
 
 The CLI is unaffected by the pool — it runs one command and exits on the legacy singleton,
 regardless of `TV_MCP_POOL`.

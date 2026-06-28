@@ -11,10 +11,10 @@ import { restFromNode } from './_rest.js';
 
 const CHART_API = 'window.TradingViewApi._activeChartWidgetWV.value()';
 
-const _resolve = makeResolver(['evaluate', 'evaluateAsync'], { waitForChartReady: _waitForChartReady, fetch: globalThis.fetch });
+const _resolve = makeResolver(['evaluate', 'evaluateAsync'], { waitForChartReady: _waitForChartReady, fetch: globalThis.fetch, setSymbolHint: () => {} });
 
 export async function getState({ _deps } = {}) {
-  const { evaluate } = _resolve(_deps);
+  const { evaluate, setSymbolHint } = _resolve(_deps);
   const state = await evaluate(`
     (function() {
       var chart = ${CHART_API};
@@ -33,11 +33,12 @@ export async function getState({ _deps } = {}) {
       };
     })()
   `);
+  if (state && state.symbol) setSymbolHint(state.symbol);
   return { success: true, ...state };
 }
 
 export async function setSymbol({ symbol, _deps }) {
-  const { evaluateAsync, waitForChartReady } = _resolve(_deps);
+  const { evaluateAsync, waitForChartReady, setSymbolHint } = _resolve(_deps);
   await evaluateAsync(`
     (function() {
       var chart = ${CHART_API};
@@ -48,6 +49,7 @@ export async function setSymbol({ symbol, _deps }) {
     })()
   `);
   const ready = await waitForChartReady(symbol);
+  setSymbolHint(symbol);
   return { success: true, symbol, chart_ready: ready };
 }
 
@@ -199,9 +201,10 @@ export async function scrollToDate({ date, _deps } = {}) {
 
 export async function symbolInfo({ symbol, _deps } = {}) {
   if (!symbol || !String(symbol).trim()) throw new Error('symbol is required');
-  const { evaluate } = _resolve(_deps);
+  const { evaluate, setSymbolHint } = _resolve(_deps);
   const current = await evaluate(`${CHART_API}.symbol()`);
   if (symbol !== current) await setSymbol({ symbol, _deps });
+  setSymbolHint(symbol);
   const result = await evaluate(`
     (function() {
       var chart = ${CHART_API};
@@ -352,7 +355,7 @@ export async function symbolSearchLive({ query, _deps } = {}) {
  */
 export async function fetchOhlcv({ symbol, timeframe, count, summary, _deps } = {}) {
   if (!symbol || !String(symbol).trim()) throw new Error('symbol is required');
-  const { evaluate } = _resolve(_deps);
+  const { evaluate, setSymbolHint } = _resolve(_deps);
 
   const current = await evaluate(`
     (function() {
@@ -364,8 +367,14 @@ export async function fetchOhlcv({ symbol, timeframe, count, summary, _deps } = 
   let symbol_changed = false;
   let timeframe_changed = false;
 
-  if (symbol !== current?.symbol) {
+  if (symbol === current?.symbol) {
+    // Fast path: tab is already on this symbol — record affinity without reloading.
+    setSymbolHint(symbol);
+  } else {
     await setSymbol({ symbol, _deps });
+    // Only stamp affinity AFTER a successful switch, so a failed setSymbol never
+    // poisons the connection's symbol cache with a symbol the tab isn't loaded on.
+    setSymbolHint(symbol);
     symbol_changed = true;
   }
   if (timeframe !== undefined && timeframe !== null && String(timeframe) !== String(current?.resolution)) {
@@ -397,9 +406,10 @@ export async function fetchOhlcv({ symbol, timeframe, count, summary, _deps } = 
  */
 export async function getMarketStatus({ symbol, _deps } = {}) {
   if (!symbol || !String(symbol).trim()) throw new Error('symbol is required');
-  const { evaluate } = _resolve(_deps);
+  const { evaluate, setSymbolHint } = _resolve(_deps);
   const current = await evaluate(`${CHART_API}.symbol()`);
   if (symbol !== current) await setSymbol({ symbol, _deps });
+  setSymbolHint(symbol);
   const info = await evaluate(`
     (function() {
       try {

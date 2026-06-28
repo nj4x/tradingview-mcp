@@ -27,6 +27,8 @@ export class CdpConnection extends EventEmitter {
     this.dead = false;
     this.route = null;          // set by the pool while leased: 'visible'|'headless'|{tabId}
     this.idleSince = null;      // Date.now() when in pool._idle; null while leased
+    this.adopted = false;       // true if attached to a pre-existing user tab (never auto-closed)
+    this.symbol = null;         // last-known loaded symbol (affinity routing hint)
     this._chain = Promise.resolve(); // serial queue tail
     this._depth = 0;            // outstanding queued ops; chain resets to fresh when 0
 
@@ -100,6 +102,9 @@ export class CdpConnection extends EventEmitter {
   evaluateAsync(expression) {
     return this.evaluate(expression, { awaitPromise: true });
   }
+
+  /** Record the loaded symbol so the pool can prefer this tab for matching requests. */
+  setSymbolHint(sym) { if (sym) this.symbol = String(sym); }
 
   /** Detach CDP (does NOT close the browser tab — pool handles tab lifecycle). */
   async dispose() {
