@@ -39,5 +39,7 @@ export const EXTENDED_TOOLS = new Set([
   'data_get_pine_labels', 'data_get_pine_tables', 'data_get_pine_boxes',
   'data_get_pine_graphics', 'data_get_study_values',
   'options_search',
+  // depth (unreliable: requires broker-connected DOM panel; zero sizes without Level 2 sub)
+  'depth_get',
 ]);
-// EXTENDED_TOOLS.size === 76; default surface = 88 - 76 = 12 tools
+// EXTENDED_TOOLS.size === 77; default surface = 88 - 77 = 11 tools
