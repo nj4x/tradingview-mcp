@@ -341,6 +341,20 @@ Pool env flags:
 | `TV_MCP_STRICT_DI` | _(unset)_ | `=1` → resolver throws on a missing `_deps` instead of falling back to the singleton (CI/DI gate). |
 | `TV_MCP_POOL` | _(unset)_ | `=0` → **bypass the pool**, use the legacy `getClient()` singleton (rollback lever). |
 | `TV_MCP_WORKER_TTL_MS` | `300000` | Idle-worker tab TTL in ms (default 5 min). `=0` disables TTL eviction. Worker tabs idle longer than this are closed automatically; the primary (adopted user tab) is never evicted. |
+| `TV_MCP_FRESH_TIMEOUT_MS` | `8000` | `chart_fetch_ohlcv` bar-freshness gate: max time to wait for the series to swap to the requested symbol/timeframe and settle (and, on a live-tradable market, become current) before reading bars. |
+| `TV_MCP_STRICT_FRESH` | _(unset)_ | `=1` → `chart_fetch_ohlcv` throws a retryable `CHART_TIMEOUT` when freshness can't be confirmed. Default returns the data with `fresh:false` + a `warning` (non-breaking). |
+
+**Bar-freshness gate (`chart_fetch_ohlcv`):** after a symbol/timeframe switch on a headless
+worker tab, the renderer briefly still holds the *previous* series (datafeed loads history first,
+then subscribes realtime), so an immediate bar read can return stale bars that catch up seconds
+later. `fetchOhlcv` now calls `waitForBarsFresh` (`src/wait.js`) before reading: it polls the main
+series until (1) `chart.symbol()`/`chart.resolution()` match the request (normalized — tolerant of
+`D`↔`1D` and exchange prefixes), (2) `(lastBarOpenTime, size)` hold stable across consecutive
+polls, and (3) — only when `chart.isMarketAvailable()` is true — the last bar is within ~3×
+the resolution interval of now (skipped for closed markets so weekends/holidays never false-fail).
+The result carries `fresh`, `last_bar_time`, and `freshness_waited_ms`. The gate runs even on the
+no-switch path, since an affinity-reused idle tab can hold a stale series. Bar times are normalized
+defensively (values `> 1e12` are treated as milliseconds).
 
 **Symbol affinity (headless routing):** a `headless` acquire prefers an idle **worker**
 tab already loaded on the requested symbol, avoiding a redundant reload. Affinity applies

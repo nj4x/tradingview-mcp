@@ -2,16 +2,19 @@
  * Core chart control logic.
  */
 import { evaluate as _evaluate, evaluateAsync as _evaluateAsync, safeString, requireFinite } from '../connection.js';
-import { waitForChartReady as _waitForChartReady } from '../wait.js';
+import { waitForChartReady as _waitForChartReady, waitForBarsFresh as _waitForBarsFresh } from '../wait.js';
 import { getStudyValues, getPineGraphics, getQuote, getOhlcv } from './data.js';
 import { captureScreenshot as _captureScreenshot } from './capture.js';
 import { isoToUnix } from './utils.js';
 import { makeResolver } from './_resolve.js';
 import { restFromNode } from './_rest.js';
+import { TvError } from './TvError.js';
 
 const CHART_API = 'window.TradingViewApi._activeChartWidgetWV.value()';
 
-const _resolve = makeResolver(['evaluate', 'evaluateAsync'], { waitForChartReady: _waitForChartReady, fetch: globalThis.fetch, setSymbolHint: () => {} });
+const STRICT_FRESH = process.env.TV_MCP_STRICT_FRESH === '1';
+
+const _resolve = makeResolver(['evaluate', 'evaluateAsync'], { waitForChartReady: _waitForChartReady, waitForBarsFresh: _waitForBarsFresh, fetch: globalThis.fetch, setSymbolHint: () => {} });
 
 export async function getState({ _deps } = {}) {
   const { evaluate, setSymbolHint } = _resolve(_deps);
@@ -355,7 +358,7 @@ export async function symbolSearchLive({ query, _deps } = {}) {
  */
 export async function fetchOhlcv({ symbol, timeframe, count, summary, _deps } = {}) {
   if (!symbol || !String(symbol).trim()) throw new Error('symbol is required');
-  const { evaluate, setSymbolHint } = _resolve(_deps);
+  const { evaluate, setSymbolHint, waitForBarsFresh } = _resolve(_deps);
 
   const current = await evaluate(`
     (function() {
@@ -382,14 +385,47 @@ export async function fetchOhlcv({ symbol, timeframe, count, summary, _deps } = 
     timeframe_changed = true;
   }
 
-  const ohlcv = await getOhlcv({ count, summary, _deps });
-
   const resolved_timeframe = (timeframe !== undefined && timeframe !== null)
     ? timeframe
     : current?.resolution;
+
+  // Live-tradability gates the recency floor: only require a recent last bar when the
+  // market can actually be trading now (otherwise weekends/holidays would false-fail).
+  // Read against the already-current chart — do NOT call getMarketStatus (it re-switches
+  // the symbol when the requested string differs from the canonical chart.symbol()).
+  let is_tradable;
+  try {
+    is_tradable = await evaluate(`
+      (function() {
+        try {
+          var chart = ${CHART_API};
+          return typeof chart.isMarketAvailable === 'function' ? chart.isMarketAvailable() : undefined;
+        } catch (e) { return undefined; }
+      })()
+    `);
+  } catch { is_tradable = undefined; }
+
+  // Freshness gate: confirm the series swapped to the requested symbol/resolution and
+  // settled (and is current when tradable) before reading bars — runs even on the
+  // no-switch path, since an affinity-reused idle tab can hold a stale series.
+  const freshness = await waitForBarsFresh({
+    symbol,
+    resolution: resolved_timeframe,
+    requireRecency: is_tradable === true,
+    _deps,
+  });
+
+  if (!freshness.fresh && STRICT_FRESH) {
+    throw new TvError('CHART_TIMEOUT',
+      `bar freshness gate failed for ${symbol} ${resolved_timeframe ?? ''} (${freshness.reason})`,
+      { meta: { symbol, resolution: resolved_timeframe, freshness } });
+  }
+
+  const ohlcv = await getOhlcv({ count, summary, _deps });
+
   const bar_count = Array.isArray(ohlcv.bars) ? ohlcv.bars.length : (ohlcv.bar_count ?? null);
 
-  return {
+  const result = {
     success: true,
     symbol,
     timeframe: resolved_timeframe,
@@ -397,7 +433,14 @@ export async function fetchOhlcv({ symbol, timeframe, count, summary, _deps } = 
     timeframe_changed,
     bar_count,
     ...ohlcv,
+    fresh: freshness.fresh,
+    last_bar_time: freshness.lastTime ?? null,
+    freshness_waited_ms: freshness.waitedMs ?? null,
   };
+  if (!freshness.fresh) {
+    result.warning = `bar freshness not confirmed (${freshness.reason}); data may be stale`;
+  }
+  return result;
 }
 
 /**

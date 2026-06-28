@@ -82,7 +82,8 @@ describe('fetchOhlcv() — chart_fetch_ohlcv', () => {
       return undefined;
     };
     const waitForChartReady = async () => true;
-    return { calls, _deps: { evaluate, evaluateAsync, waitForChartReady } };
+    const waitForBarsFresh = async () => ({ fresh: true, lastTime: 1, size: 1, waitedMs: 0 });
+    return { calls, _deps: { evaluate, evaluateAsync, waitForChartReady, waitForBarsFresh } };
   }
 
   it('skips setSymbol when the requested symbol equals the current symbol', async () => {
@@ -128,7 +129,7 @@ describe('fetchOhlcv() — chart_fetch_ohlcv', () => {
       }
       return undefined;
     };
-    const _deps = { evaluate, evaluateAsync: async () => undefined, waitForChartReady: async () => true };
+    const _deps = { evaluate, evaluateAsync: async () => undefined, waitForChartReady: async () => true, waitForBarsFresh: async () => ({ fresh: true }) };
     // getOhlcv throws on empty bars — that is fine, we just need to observe the cap.
     await assert.rejects(() => fetchOhlcv({ symbol: 'AAPL', count: 9999, _deps }));
     assert.equal(limitSeen, 500, 'count should be capped at MAX_OHLCV_BARS (500)');
@@ -155,9 +156,10 @@ describe('fetchOhlcv() — chart_fetch_ohlcv', () => {
       return undefined;
     };
     const waitForChartReady = async () => true;
+    const waitForBarsFresh = async () => ({ fresh: true, lastTime: 1, size: 1, waitedMs: 0 });
     const setSymbolHint = () => { order.push('setSymbolHint'); };
 
-    const res = await fetchOhlcv({ symbol: 'MSFT', _deps: { evaluate, evaluateAsync, waitForChartReady, setSymbolHint } });
+    const res = await fetchOhlcv({ symbol: 'MSFT', _deps: { evaluate, evaluateAsync, waitForChartReady, waitForBarsFresh, setSymbolHint } });
     assert.equal(res.symbol_changed, true);
     // The hint must be stamped only AFTER the symbol switch completes.
     const switchIdx = order.indexOf('setSymbol');
