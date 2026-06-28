@@ -20,7 +20,9 @@ node --test tests/sanitization.test.js   # injection-safety unit tests (offline,
 node --test --test-name-pattern="safeString" tests/sanitization.test.js  # single test
 ```
 
-`tests/e2e.test.js` and `tests/replay.test.js` drive a real chart over CDP and will fail without TradingView Desktop launched with `--remote-debugging-port=9222` (use the `tv_launch` tool or `scripts/launch_tv_debug_*`). `sanitization.test.js`, `pine_analyze.test.js`, and `cli.test.js` run offline.
+`tests/e2e.test.js`, `tests/replay.test.js`, and `tests/concurrent.e2e.test.js` drive a real chart over CDP and will fail (or skip gracefully) without TradingView Desktop launched with `--remote-debugging-port=9222` (use the `tv_launch` tool or `scripts/launch_tv_debug_*`). `sanitization.test.js`, `pine_analyze.test.js`, and `cli.test.js` run offline.
+
+`npm run test:concurrent` — pool concurrency tests (distinct tabs, queue-blocking, drain cleanup). These require race-safe tab creation (`PUT /json/new` OR the two-step `window.open` path in `cdpDiscovery.js`); they skip gracefully if neither works on the running build. On this Electron build `PUT /json/new` and `Target.createTarget` are unsupported, so tab growth uses `window.open('about:blank')` from the pool's primary tab, then navigates the blank tab via `location.href` (a navigating `window.open` or any URL `#hash` crashes TV's `BrowserView.autoResize`).
 
 ## Codebase Architecture
 

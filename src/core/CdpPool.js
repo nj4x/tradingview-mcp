@@ -168,7 +168,10 @@ export class CdpPool {
     this._pendingCount += 1;
     try {
       const { conn, createdTargetId } =
-        await this._discovery.createNewTarget({ tabModule: this._tabModule });
+        await this._discovery.createNewTarget({
+          tabModule: this._tabModule,
+          sourceTargetId: this._primary?.id,
+        });
       this._createdTargetIds.add(createdTargetId); // OPS-2: track for cleanup
       this._wireDisconnect(conn);
       this._idle.push(conn);
@@ -244,7 +247,10 @@ export class CdpPool {
     this._pendingCount += 1;
     try {
       const { conn, createdTargetId } =
-        await this._discovery.createNewTarget({ tabModule: this._tabModule });
+        await this._discovery.createNewTarget({
+          tabModule: this._tabModule,
+          sourceTargetId: this._primary?.id,
+        });
       this._createdTargetIds.add(createdTargetId); // OPS-2: track for cleanup
       this._wireDisconnect(conn);
       this._idle.push(conn);
