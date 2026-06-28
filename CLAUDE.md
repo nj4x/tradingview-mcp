@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # TradingView MCP — Claude Instructions
 
-68 tools for reading and controlling a live TradingView Desktop chart via CDP (port 9222).
+88 tools for reading and controlling a live TradingView Desktop chart via CDP (port 9222). The MCP server advertises 12 by default and all 88 with `TV_MCP_EXTENDED=1` (the gate is `src/tools/_groups.js`).
 
 ## Development Commands
 
@@ -15,7 +15,9 @@ node src/cli/index.js state          # CLI directly; outputs JSON, exit 0=ok 1=e
 
 # Tests (node:test, zero test deps)
 npm test               # e2e + pine_analyze (e2e REQUIRES live TradingView on port 9222)
-npm run test:unit      # pine_analyze + cli — no live TradingView needed
+npm run test:unit      # full offline suite (16 files: pine, cli, sanitization, pool, withtab, phases 1-3, etc.) — no live TradingView needed
+npm run test:concurrent  # pool concurrency e2e (needs live TV; skips gracefully if tab creation unsupported)
+npm run test:ctool       # concurrent multi-tool integration (CT-1..CT-5; needs live TV)
 node --test tests/sanitization.test.js   # injection-safety unit tests (offline, DI mocks)
 node --test --test-name-pattern="safeString" tests/sanitization.test.js  # single test
 ```
@@ -254,7 +256,7 @@ This unlocks detailed datafeed processing logs in the renderer console, visible 
 ### CDP domains in use
 
 The project connects to TradingView's renderer via Chrome DevTools Protocol (`src/connection.js`):
-- **`Runtime.enable`** + **`Runtime.evaluate`** — execute JS in the renderer (the core mechanism for all 68 tools)
+- **`Runtime.enable`** + **`Runtime.evaluate`** — execute JS in the renderer (the core mechanism for all 88 tools)
 - **`Page.enable`** + **`Page.captureScreenshot`** — take screenshots
 - **`DOM.enable`** — (enabled but primarily queried via `Runtime.evaluate`, not CDP DOM domain)
 
@@ -297,10 +299,10 @@ Opt-in env flags (set before starting the MCP server):
 ```bash
 TV_MCP_NETWORK=1 npm start          # enable Network responses/failures for chart/datafeed URLs
 TV_MCP_NETWORK=1 TV_MCP_WS_FRAMES=1 npm start   # also capture WebSocket frames
-TV_MCP_EXTENDED=1 npm start         # expose all 88 tools (default: 43 chart+data tools)
+TV_MCP_EXTENDED=1 npm start         # expose all 88 tools (default: 12 chart+data tools)
 ```
 
-The CLI (`npm run tv -- <cmd>`) is unaffected by `TV_MCP_EXTENDED` — all commands are always available. The flag only gates which tools the MCP server advertises over stdio. An unrecognized value (e.g. `TV_MCP_EXTENDED=foo`) prints a stderr warning and falls back to the default 43-tool mode.
+The CLI (`npm run tv -- <cmd>`) is unaffected by `TV_MCP_EXTENDED` — all commands are always available. The flag only gates which tools the MCP server advertises over stdio. An unrecognized value (e.g. `TV_MCP_EXTENDED=foo`) prints a stderr warning and falls back to the default 12-tool mode.
 
 Event types in the buffer: `session_start`, `console`, `exception`, `log`, `network_response`, `network_failed`, `ws_frame`.
 
