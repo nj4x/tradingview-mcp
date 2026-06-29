@@ -3,7 +3,7 @@
  *
  * IMPORTANT: never import src/server.js here — it has a top-level
  * `await server.connect(transport)` that would attempt a CDP connection and
- * hang/crash offline. We import only _groups.js and the 16 individual
+ * hang/crash offline. We import only _groups.js and the 22 individual
  * tool registrar modules, and exercise them with a mock registrar.
  *
  * Run: node --test tests/tool_groups.test.js
@@ -29,12 +29,20 @@ import { registerPaneTools } from '../src/tools/pane.js';
 import { registerTabTools } from '../src/tools/tab.js';
 import { registerNewsTools } from '../src/tools/news.js';
 import { registerOptionsTools } from '../src/tools/options.js';
+import { registerFinancialsTools } from '../src/tools/financials.js';
+import { registerEtfTools } from '../src/tools/etf.js';
+import { registerBondsTools } from '../src/tools/bonds.js';
+import { registerTechnicalsTools } from '../src/tools/technicals.js';
+import { registerDocumentsTools } from '../src/tools/documents.js';
+import { registerCommunityTools } from '../src/tools/community.js';
 
 const ALL_REGISTRARS = [
   registerHealthTools, registerChartTools, registerPineTools, registerDataTools,
   registerCaptureTools, registerDrawingTools, registerAlertTools, registerBatchTools,
   registerReplayTools, registerIndicatorTools, registerWatchlistTools, registerUiTools,
   registerPaneTools, registerTabTools, registerNewsTools, registerOptionsTools,
+  registerFinancialsTools, registerEtfTools, registerBondsTools, registerTechnicalsTools,
+  registerDocumentsTools, registerCommunityTools,
 ];
 
 /** Mock that collects every tool name passed to .tool(). */
@@ -50,24 +58,24 @@ function makeCollector() {
   return { mock, names };
 }
 
-/** Collect all names registered across all 16 registrars on a given target. */
+/** Collect all names registered across all 22 registrars on a given target. */
 function registerAll(target) {
   for (const reg of ALL_REGISTRARS) reg(target);
 }
 
 describe('EXTENDED_TOOLS', () => {
-  it('contains exactly 76 tool names', () => {
-    assert.equal(EXTENDED_TOOLS.size, 76);
+  it('contains exactly 77 tool names', () => {
+    assert.equal(EXTENDED_TOOLS.size, 77);
   });
 });
 
 describe('full tool surface', () => {
-  it('all 16 registrars register exactly 88 unique tool names', () => {
+  it('all 22 registrars register exactly 99 unique tool names', () => {
     const { mock, names } = makeCollector();
     registerAll(mock);
-    assert.equal(names.length, 88, `expected 88 .tool() calls, got ${names.length}`);
+    assert.equal(names.length, 99, `expected 99 .tool() calls, got ${names.length}`);
     const unique = new Set(names);
-    assert.equal(unique.size, 88, `expected 88 unique names, got ${unique.size} (duplicate registration?)`);
+    assert.equal(unique.size, 99, `expected 99 unique names, got ${unique.size} (duplicate registration?)`);
   });
 
   it('every EXTENDED_TOOLS name exists in the registered surface (catches typos)', () => {
@@ -81,7 +89,7 @@ describe('full tool surface', () => {
 });
 
 describe('default-mode registrar proxy', () => {
-  it('registers exactly 12 tools (88 - 76 gated)', () => {
+  it('registers exactly 22 tools (99 - 77 gated)', () => {
     const { mock: server, names } = makeCollector();
     // Proxy mirrors src/server.js default-mode behavior.
     const registrar = {
@@ -90,7 +98,7 @@ describe('default-mode registrar proxy', () => {
       },
     };
     registerAll(registrar);
-    assert.equal(names.length, 12, `expected 12 registered tools, got ${names.length}`);
+    assert.equal(names.length, 22, `expected 22 registered tools, got ${names.length}`);
     // none of the gated tools leaked through
     for (const name of names) {
       assert.ok(!EXTENDED_TOOLS.has(name), `gated tool "${name}" leaked into default surface`);
@@ -111,10 +119,10 @@ describe('default-mode registrar proxy', () => {
 });
 
 describe('extended-mode registrar', () => {
-  it('passthrough server registers all 88 tools', () => {
+  it('passthrough server registers all 99 tools', () => {
     const { mock: server, names } = makeCollector();
     // extended mode passes `server` straight through (registrar === server)
     registerAll(server);
-    assert.equal(names.length, 88, `expected 88 registered tools, got ${names.length}`);
+    assert.equal(names.length, 99, `expected 99 registered tools, got ${names.length}`);
   });
 });

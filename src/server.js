@@ -16,6 +16,12 @@ import { registerPaneTools } from './tools/pane.js';
 import { registerTabTools } from './tools/tab.js';
 import { registerNewsTools } from './tools/news.js';
 import { registerOptionsTools } from './tools/options.js';
+import { registerFinancialsTools } from './tools/financials.js';
+import { registerEtfTools } from './tools/etf.js';
+import { registerBondsTools } from './tools/bonds.js';
+import { registerTechnicalsTools } from './tools/technicals.js';
+import { registerDocumentsTools } from './tools/documents.js';
+import { registerCommunityTools } from './tools/community.js';
 import { EXTENDED_TOOLS } from './tools/_groups.js';
 import { startDiagnostics } from './core/diagnostics.js';
 import { ensureTradingViewRunning } from './core/health.js';
@@ -26,7 +32,7 @@ if (tvMcpExtended !== undefined && tvMcpExtended !== '1' && tvMcpExtended !== '0
   process.stderr.write(`⚠  TV_MCP_EXTENDED="${tvMcpExtended}" is not recognized. Valid: "1" to enable extended mode. Defaulting to read-only.\n`);
 }
 const extendedMode = tvMcpExtended === '1';
-const toolCount = extendedMode ? 88 : (88 - EXTENDED_TOOLS.size); // 43 or 88
+const toolCount = extendedMode ? 99 : (99 - EXTENDED_TOOLS.size); // default or extended
 
 const defaultInstructions = `TradingView MCP — ${toolCount} tools for reading and controlling a live TradingView Desktop chart.
 
@@ -51,6 +57,17 @@ Symbols & market data:
 - symbol_info → metadata for a symbol
 - market_status → current session status (open/closed/pre/post)
 - news_get_headlines, news_get_story → news feed for a symbol
+
+Fundamental & market data (REST, no chart required):
+- financials_get → revenue, margins, EPS, valuation ratios (P/E, P/B, P/CF)
+- forecast_get → analyst price targets, buy/hold/sell consensus, earnings calendar
+- technicals_get → TradingView summary rating (oscillators + MAs, ±1 scale) for any symbol
+- etf_search / etf_get → ETF screener: AUM, expense ratio, category, fund flows
+- bond_search → bond screener: yield, coupon, maturity, filtered by yield/maturity
+- documents_list / documents_get_file → SEC filings, earnings transcripts (via Quartr)
+- community_get_ideas → published trade ideas for a symbol
+- community_get_minds → social posts (Minds) for a symbol
+- community_get_scripts → community Pine scripts for a symbol
 
 Launch: tv_launch → auto-detect and start TradingView with CDP on any platform
 
@@ -141,6 +158,12 @@ registerPaneTools(registrar);
 registerTabTools(registrar);
 registerNewsTools(registrar);
 registerOptionsTools(registrar);
+registerFinancialsTools(registrar);
+registerEtfTools(registrar);
+registerBondsTools(registrar);
+registerTechnicalsTools(registrar);
+registerDocumentsTools(registrar);
+registerCommunityTools(registrar);
 startDiagnostics();
 
 // Startup notice (stderr so it doesn't interfere with MCP stdio protocol)
