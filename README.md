@@ -49,7 +49,7 @@ See [RESEARCH.md](RESEARCH.md) for open questions, findings, and related work.
 
 - **TradingView Desktop app** (paid subscription required for real-time data)
 - **Node.js 18+**
-- **Claude Code** with MCP support (for MCP tools) or any terminal (for CLI)
+- **Claude Code** with MCP support
 - **macOS, Windows, or Linux**
 
 ## What It Does
@@ -64,8 +64,6 @@ Gives your AI assistant eyes and hands on your own chart:
 - **Replay practice** — step through historical bars, practice entries/exits
 - **Screenshots** — capture chart state for AI visual analysis
 - **Multi-pane layouts** — set up 2x2, 3x1, etc. grids with different symbols per pane
-- **Monitor your chart** — stream JSONL from your locally running chart for local monitoring scripts
-- **CLI access** — every MCP tool is also a `tv` CLI command, pipe-friendly with JSON output
 - **Launch TradingView** — auto-detect and launch with debug mode from any platform
 
 ## Install with Claude Code
@@ -134,70 +132,6 @@ Replace `/path/to/tradingview-mcp` with your actual path.
 
 Ask Claude: *"Use tv_health_check to verify TradingView is connected"*
 
-## CLI
-
-Every MCP tool is also accessible as a `tv` CLI command. All output is JSON for piping with `jq`.
-
-```bash
-# Install globally (optional)
-npm link
-
-# Or run directly
-node src/cli/index.js <command>
-```
-
-### Quick Examples
-
-```bash
-tv status                          # check connection
-tv quote                           # current price
-tv symbol AAPL                     # change symbol
-tv ohlcv --summary                 # price summary
-tv screenshot -r chart             # capture chart
-tv pine compile                    # compile Pine Script
-tv pane layout 2x2                 # 4-chart grid
-tv pane symbol 1 ES1!              # set pane symbol
-tv stream quote | jq '.close'      # monitor price changes
-```
-
-### All Commands
-
-```
-tv status / launch / state / symbol / timeframe / type / info / search
-tv quote / ohlcv / values
-tv data lines/labels/tables/boxes/strategy/trades/equity/depth/indicator
-tv pine get/set/compile/analyze/check/save/new/open/list/errors/console
-tv draw shape/list/get/remove/clear
-tv alert list/create/delete
-tv watchlist get/add
-tv indicator add/remove/toggle/set/get
-tv layout list/switch
-tv pane list/layout/focus/symbol
-tv tab list/new/close/switch
-tv replay start/step/stop/status/autoplay/trade
-tv stream quote/bars/values/lines/labels/tables/all
-tv ui click/keyboard/hover/scroll/find/eval/type/panel/fullscreen/mouse
-tv screenshot / discover / ui-state / range / scroll
-```
-
-## Streaming
-
-The `tv stream` commands poll your locally running TradingView Desktop instance at regular intervals via Chrome DevTools Protocol on localhost.
-
-No connection is made to TradingView's servers. All data stays on your machine.
-
-> [!WARNING]
-> Programmatic consumption of TradingView data may conflict with their Terms of Use regardless of the data source. You are solely responsible for ensuring your usage complies.
-
-```bash
-tv stream quote                          # price tick monitoring
-tv stream bars                           # bar-by-bar updates
-tv stream values                         # indicator value monitoring
-tv stream lines --filter "NY Levels"     # price level monitoring
-tv stream tables --filter Profiler       # table data monitoring
-tv stream all                            # all panes at once (multi-symbol)
-```
-
 ## How Claude Knows Which Tool to Use
 
 Claude reads [`CLAUDE.md`](CLAUDE.md) automatically when working in this project. It contains a complete decision tree:
@@ -231,7 +165,6 @@ The MCP server can advertise two different sets of tools, controlled by the `TV_
 Notes:
 - The grouping uses a **denylist** (`src/tools/_groups.js`): any new tool added later is exposed by default unless explicitly added to the extended set.
 - An unrecognized value (e.g. `TV_MCP_EXTENDED=foo`) prints a warning to stderr and falls back to the default 43-tool mode — it never throws.
-- The **CLI** (`npm run tv -- <cmd>`) is unaffected; every command is always available regardless of this flag.
 
 ## Tool Reference (78 MCP tools)
 
@@ -361,7 +294,7 @@ The key flag: `--remote-debugging-port=9222`
 npm test
 ```
 
-29 tests covering: Pine Script static analysis, server-side compilation, and CLI routing.
+29 tests covering: Pine Script static analysis and server-side compilation.
 
 ## Architecture
 
@@ -369,9 +302,8 @@ npm test
 Claude Code  ←→  MCP Server (stdio)  ←→  CDP (port 9222)  ←→  TradingView Desktop (Electron)
 ```
 
-- **Transport**: MCP over stdio (78 tools) + CLI (`tv` command, 30 commands with 66 subcommands)
+- **Transport**: MCP over stdio (78 tools)
 - **Connection**: Chrome DevTools Protocol on localhost:9222
-- **Streaming**: Poll-and-diff loop with deduplication, JSONL output to stdout
 - **No dependencies** beyond `@modelcontextprotocol/sdk` and `chrome-remote-interface`
 
 ## Attributions
@@ -399,7 +331,7 @@ By using this software, you acknowledge and agree that:
    - Performing automated trading or algorithmic decision-making using extracted data
    - Violating the intellectual property rights of Pine Script indicator authors
    - Connecting to TradingView's servers or infrastructure (all access is via the locally running Desktop app)
-5. The streaming functionality monitors your locally running TradingView Desktop instance only. It does not connect to TradingView's servers or extract data from TradingView's infrastructure.
+5. This tool monitors your locally running TradingView Desktop instance only. It does not connect to TradingView's servers or extract data from TradingView's infrastructure.
 6. Market data accessed through this tool remains subject to exchange and data provider licensing terms. **Do not redistribute, store, or commercially exploit any data obtained through this tool.**
 7. This tool accesses internal, undocumented TradingView application interfaces that may change or break at any time without notice.
 
