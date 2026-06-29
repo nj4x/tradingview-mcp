@@ -106,6 +106,12 @@ describe('getTechnicals() — request', () => {
     assert.deepEqual(fetch.lastBody.columns, ['RSI', 'MACD.macd']);
   });
 
+  it('empty columns array uses all default columns', async () => {
+    const fetch = makeFetch(defaultScan());
+    await getTechnicals({ symbol: 'NASDAQ:AMZN', columns: [], _deps: { fetch } });
+    assert.deepEqual(fetch.lastBody.columns, ['Recommend.All', 'Recommend.MA', 'Recommend.Other']);
+  });
+
   it('interval 1W → columns carry |1W suffix in request body', async () => {
     const fetch = makeFetch(defaultScan());
     const out = await getTechnicals({ symbol: 'NASDAQ:AMZN', interval: '1W', _deps: { fetch } });

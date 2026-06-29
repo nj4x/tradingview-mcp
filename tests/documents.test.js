@@ -64,46 +64,40 @@ describe('listDocuments()', () => {
     );
   });
 
-  it('builds the correct base path and includes symbol + default lang filters', async () => {
+  it('builds the correct base path and includes sorted default lang + symbol filters', async () => {
     const fetch = makeFetch({ total: 1, items: [SAMPLE_ITEM] });
     await listDocuments({ symbol: 'NASDAQ:AMZN', _deps: { fetch } });
 
     const url = fetch.calls[0].url;
-    assert.ok(
-      url.includes('news-mediator.tradingview.com/public/doc-screener/v1/documents'),
-      'base path present',
+    const parsed = new URL(url);
+    assert.equal(
+      parsed.origin + parsed.pathname,
+      'https://news-mediator.tradingview.com/public/doc-screener/v1/documents',
     );
-    assert.ok(
-      url.includes('filter=symbol%3ANASDAQ%3AAMZN') || url.includes('filter=symbol:NASDAQ:AMZN'),
-      'symbol filter present',
-    );
-    assert.ok(
-      url.includes('filter=lang%3Aen') || url.includes('filter=lang:en'),
-      'default lang=en filter present',
-    );
-    assert.ok(url.includes('client=web'), 'client=web present');
+    assert.equal(parsed.searchParams.get('client'), 'web');
+    assert.deepEqual(parsed.searchParams.getAll('filter'), ['lang:en', 'symbol:NASDAQ:AMZN']);
   });
 
-  it('custom lang is used in the filter', async () => {
+  it('custom lang is used in the first filter slot', async () => {
     const fetch = makeFetch({ total: 0, items: [] });
     await listDocuments({ symbol: 'NASDAQ:AMZN', lang: 'de', _deps: { fetch } });
-    const url = fetch.calls[0].url;
-    assert.ok(url.includes('filter=lang%3Ade') || url.includes('filter=lang:de'));
+    const filters = new URL(fetch.calls[0].url).searchParams.getAll('filter');
+    assert.deepEqual(filters.slice(0, 2), ['lang:de', 'symbol:NASDAQ:AMZN']);
   });
 
-  it('categories filter included when provided', async () => {
+  it('categories filter included when provided after lang and symbol', async () => {
     const fetch = makeFetch({ total: 0, items: [] });
     await listDocuments({
       symbol: 'NASDAQ:AMZN',
       categories: ['quarterly_report', 'annual_report'],
       _deps: { fetch },
     });
-    const url = fetch.calls[0].url;
-    assert.ok(
-      url.includes('filter=id%3Aquarterly_report%2Cannual_report') ||
-        url.includes('filter=id:quarterly_report,annual_report'),
-      'category id filter present',
-    );
+    const filters = new URL(fetch.calls[0].url).searchParams.getAll('filter');
+    assert.deepEqual(filters, [
+      'lang:en',
+      'symbol:NASDAQ:AMZN',
+      'id:quarterly_report,annual_report',
+    ]);
   });
 
   it('categories filter omitted when not provided', async () => {

@@ -21,7 +21,7 @@ export function registerTechnicalsTools(server) {
       'unknown the call falls back to the US screener and sets screener_guessed:true.',
     {
       symbol: z.string().describe('Exchange-prefixed symbol, e.g. "NASDAQ:AMZN", "BINANCE:BTCUSDT", "NYMEX:CL1!".'),
-      columns: z.array(z.string()).optional().describe('TradingView scanner columns to request. Leave unset to use all three defaults: "Recommend.All" (overall TA rating), "Recommend.MA" (moving averages rating), "Recommend.Other" (oscillators rating). These are the only standard values — omit this parameter unless you specifically want a subset. Each value on a ±1 scale: >0.5 Strong Buy, >0.1 Buy, -0.1..0.1 Neutral, <-0.1 Sell, <-0.5 Strong Sell.'),
+      columns: z.array(z.string()).optional().describe('TradingView scanner columns to request. Omit or pass [] to use all three defaults: "Recommend.All" (overall TA rating), "Recommend.MA" (moving averages rating), "Recommend.Other" (oscillators rating). These are the only recommended values — provide a non-empty custom array only when you need raw scanner columns. Each Recommend value is on a ±1 scale: >0.5 Strong Buy, >0.1 Buy, -0.1..0.1 Neutral, <-0.1 Sell, <-0.5 Strong Sell.'),
       interval: z.enum(['1h', '4h', '1D', '1W', '1M']).optional().describe('Timeframe for the rating (default: daily). Adds a suffix to each column.'),
     },
     async ({ symbol, columns, interval }) => {

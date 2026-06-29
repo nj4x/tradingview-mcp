@@ -49,17 +49,24 @@ describe('getPineGraphics() — data_get_pine_graphics', () => {
 
 describe('getQuote() — options metadata extension', () => {
   const baseQuote = { symbol: 'TST', close: 5.2, last: 5.2, volume: 10 };
+  const quoteDeps = (quote, current = 'TST') => ({
+    evaluate: async (expr) => expr.includes('.symbol()') ? current : quote,
+    evaluateAsync: async () => undefined,
+    waitForChartReady: async () => undefined,
+  });
 
   it('adds option fields when symbol is an option', async () => {
-    const evaluate = async () => ({
-      ...baseQuote,
-      _ext: {
-        type: 'option', typespecs: ['option'],
-        option_type: 'call', strike: 150, expiration: 20251219,
-        exercise_style: 'American', shares_per_contract: 100, underlying: 'AAPL',
-      },
+    const res = await getQuote({
+      symbol: 'TST',
+      _deps: quoteDeps({
+        ...baseQuote,
+        _ext: {
+          type: 'option', typespecs: ['option'],
+          option_type: 'call', strike: 150, expiration: 20251219,
+          exercise_style: 'American', shares_per_contract: 100, underlying: 'AAPL',
+        },
+      }),
     });
-    const res = await getQuote({ _deps: { evaluate } });
     assert.equal(res.strike_price, 150);
     assert.equal(res.expiration_date, 20251219);
     assert.equal(res.contract_type, 'call');
@@ -70,14 +77,31 @@ describe('getQuote() — options metadata extension', () => {
   });
 
   it('omits option fields for a non-option symbol', async () => {
-    const evaluate = async () => ({ ...baseQuote, _ext: { type: 'stock', typespecs: ['common'] } });
-    const res = await getQuote({ _deps: { evaluate } });
+    const res = await getQuote({
+      symbol: 'TST',
+      _deps: quoteDeps({ ...baseQuote, _ext: { type: 'stock', typespecs: ['common'] } }),
+    });
     assert.ok(!('strike_price' in res));
     assert.ok(!('expiration_date' in res));
     assert.ok(!('contract_type' in res));
     assert.ok(!('underlying_ticker' in res));
     assert.equal(res.success, true);
     assert.equal(res.last, 5.2);
+  });
+
+  it('loads the requested symbol before reading quote bars', async () => {
+    const calls = [];
+    const res = await getQuote({
+      symbol: 'NASDAQ:QQQ',
+      _deps: {
+        evaluate: async (expr) => expr.includes('.symbol()') ? 'NYSE:IBM' : { ...baseQuote, symbol: 'NASDAQ:QQQ' },
+        evaluateAsync: async (expr) => { calls.push(expr); },
+        waitForChartReady: async () => { calls.push('wait'); },
+      },
+    });
+    assert.equal(res.symbol, 'NASDAQ:QQQ');
+    assert.ok(calls[0].includes('chart.setSymbol("NASDAQ:QQQ"'));
+    assert.equal(calls[1], 'wait');
   });
 });
 

@@ -67,6 +67,12 @@ describe('EXTENDED_TOOLS', () => {
   it('contains exactly 82 tool names', () => {
     assert.equal(EXTENDED_TOOLS.size, 82);
   });
+
+  it('gates TradingView launch/health and community tools', () => {
+    for (const name of ['tv_launch', 'tv_health_check', 'community_get_ideas', 'community_get_minds', 'community_get_scripts']) {
+      assert.ok(EXTENDED_TOOLS.has(name), `${name} should be gated`);
+    }
+  });
 });
 
 describe('full tool surface', () => {

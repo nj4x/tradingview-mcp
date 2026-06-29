@@ -65,18 +65,15 @@ Fundamental & market data (REST, no chart required):
 - etf_search / etf_get → ETF screener: AUM, expense ratio, category, fund flows
 - bond_search → bond screener: yield, coupon, maturity, filtered by yield/maturity
 - documents_list / documents_get_file → SEC filings, earnings transcripts (via Quartr)
-- community_get_ideas → published trade ideas for a symbol
-- community_get_minds → social posts (Minds) for a symbol
-- community_get_scripts → community Pine scripts for a symbol
 
-Launch: tv_launch → auto-detect and start TradingView with CDP on any platform
+TradingView Desktop is auto-launched on server startup by default and monitored for restart if it goes down.
 
 CONTEXT MANAGEMENT:
 - ALWAYS use summary=true on data_get_ohlcv
 - ALWAYS use study_filter on pine tools when you know which indicator you want
 - NEVER use verbose=true unless user specifically asks for raw data
 
-Run with TV_MCP_EXTENDED=1 to unlock chart control, screenshots, Pine Script, replay, drawing, alerts, UI automation, batch tools, and more (88 total).`;
+Run with TV_MCP_EXTENDED=1 to unlock chart control, screenshots, Pine Script, replay, drawing, alerts, UI automation, batch tools, TradingView launch/health tools, community feeds, and more (82 gated; 99 total).`;
 
 const extendedInstructions = `TradingView MCP — ${toolCount} tools for reading and controlling a live TradingView Desktop chart.
 
@@ -112,7 +109,8 @@ Replay: replay_start → replay_step → replay_trade → replay_status → repl
 Batch: batch_run → run action across multiple symbols/timeframes
 Drawing: draw_shape → horizontal_line, trend_line, rectangle, text
 Alerts: alert_create, alert_list, alert_delete
-Launch: tv_launch → auto-detect and start TradingView with CDP on any platform
+Health: tv_health_check → inspect CDP/chart state, tv_launch → start TradingView with CDP
+Community: community_get_ideas, community_get_minds, community_get_scripts
 Panes: pane_list, pane_set_layout (s, 2h, 2v, 4, 6, 8), pane_focus, pane_set_symbol
 Tabs: tab_list, tab_new, tab_close, tab_switch
 

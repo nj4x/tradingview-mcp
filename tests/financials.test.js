@@ -88,6 +88,14 @@ describe('fetchFinancials()', () => {
     assert.match(url, /fields=ebitda%2Cebit/, 'array custom fields joined + encoded');
   });
 
+  it('empty fields string uses all default financial fields', async () => {
+    const fetch = makeFetch(FIN_PAYLOAD);
+    await fetchFinancials({ symbol: 'AAPL', fields: '', _deps: { fetch } });
+    const { url } = fetch.calls[0];
+    assert.match(url, /total_revenue/);
+    assert.match(url, /earnings_per_share_basic_ttm/);
+  });
+
   it('empty response object → non-retryable TvError(REST_HTTP)', async () => {
     const fetch = makeFetch({});
     await assert.rejects(
@@ -204,6 +212,14 @@ describe('fetchForecast()', () => {
     const { url } = fetch.calls[0];
     assert.match(url, /fields=price_target_high%2Cprice_target_low/);
     assert.doesNotMatch(url, /recommendation_mark/, 'default field dropped when overridden');
+  });
+
+  it('empty fields string uses all default forecast fields', async () => {
+    const fetch = makeFetch(FCAST_PAYLOAD);
+    await fetchForecast({ symbol: 'AAPL', fields: '', _deps: { fetch } });
+    const { url } = fetch.calls[0];
+    assert.match(url, /price_target_average/);
+    assert.match(url, /earnings_release_date/);
   });
 
   it('empty response object → non-retryable TvError(REST_HTTP)', async () => {

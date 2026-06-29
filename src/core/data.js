@@ -406,15 +406,30 @@ export async function getEquity({ _deps } = {}) {
 }
 
 export async function getQuote({ symbol, _deps } = {}) {
-  const { evaluate } = _resolve(_deps);
+  if (!symbol || !String(symbol).trim()) throw new Error('symbol is required');
+  const { evaluate, evaluateAsync, waitForChartReady } = _resolve(_deps);
+  const requestedSymbol = String(symbol).trim();
+  const current = await evaluate(`${CHART_API}.symbol()`);
+  if (requestedSymbol !== current) {
+    await evaluateAsync(`
+      (function() {
+        var chart = ${CHART_API};
+        return new Promise(function(resolve) {
+          chart.setSymbol(${safeString(requestedSymbol)}, {});
+          setTimeout(resolve, 500);
+        });
+      })()
+    `);
+    await waitForChartReady(requestedSymbol);
+  }
   const data = await evaluate(`
     (function() {
       var api = ${CHART_API};
-      var sym = ${safeString(symbol || '')};
-      if (!sym) { try { sym = api.symbol(); } catch(e) {} }
-      if (!sym) { try { sym = api.symbolExt().symbol; } catch(e) {} }
+      var requested = ${safeString(requestedSymbol)};
+      var sym = requested;
       var ext = {};
       try { ext = api.symbolExt() || {}; } catch(e) {}
+      try { sym = ext.pro_name || ext.full_name || ext.symbol || requested; } catch(e) {}
       var bars = ${BARS_PATH};
       var quote = { symbol: sym };
       if (bars && typeof bars.lastIndex === 'function') {

@@ -55,8 +55,8 @@ export function registerDataTools(server) {
     } catch (err) { return fail(err); }
   });
 
-  server.tool('quote_get', 'Get real-time quote data for a symbol (price, OHLC, volume)', {
-    symbol: z.string().describe('Symbol to quote (e.g., "AAPL", "NASDAQ:AMZN", "ES1!")'),
+  server.tool('quote_get', 'Get real-time quote data for a symbol (price, OHLC, volume). Requires symbol. Switches the visible chart to that symbol if needed and does not restore the previous symbol.', {
+    symbol: z.string().trim().min(1).describe('Required symbol to quote (e.g., "AAPL", "NASDAQ:AMZN", "ES1!").'),
   }, async ({ symbol }) => {
     try {
       const out = await withTab((deps) => core.getQuote({ symbol, _deps: deps }), { route: 'visible' });

@@ -14,30 +14,16 @@ TradingView Desktop must be running with `--remote-debugging-port=9222`.
 
 | Mode | How to enable | Tools |
 |------|--------------|-------|
-| **Default** | `npm start` | **22** |
-| **Extended** | `TV_MCP_EXTENDED=1 npm start` | **99** (22 + 77) |
+| **Default** | `npm start` | **17** |
+| **Extended** | `TV_MCP_EXTENDED=1 npm start` | **99** (17 + 82) |
 
-Default exposes the REST-first read surface (market data, news, fundamentals). Extended adds chart control, Pine Script, drawings, alerts, replay, UI automation, and data readers.
+Default exposes the REST-first read surface (market data, news, fundamentals). Extended adds chart control, Pine Script, drawings, alerts, replay, UI automation, data readers, community tools, and connection diagnostics.
 
----
-
-## Default Tools (22)
-
-### Connection
-
-#### `tv_health_check`
-Check CDP connection to TradingView and return current chart state.
-_(no parameters)_
-
-#### `tv_launch`
-Launch TradingView Desktop with Chrome DevTools Protocol enabled. Auto-detects install on Mac, Windows, Linux.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `port` | number | no | CDP port (default 9222) |
-| `kill_existing` | boolean | no | Kill existing TradingView instances first (default true) |
+TradingView Desktop is auto-launched on startup by default. Set `TV_MCP_AUTO_LAUNCH=0` to disable auto-launch and the 30s health monitor.
 
 ---
+
+## Default Tools (17)
 
 ### Price & Quotes
 
@@ -46,7 +32,7 @@ Get real-time quote data for a symbol (price, OHLC, volume).
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `symbol` | string | no | Symbol to quote (blank = current chart symbol) |
+| `symbol` | string | **yes** | Symbol to quote (e.g., `"AAPL"`, `"NASDAQ:AMZN"`, `"ES1!"`) |
 
 #### `fetch_ohlcv`
 Fetch OHLCV for any symbol+timeframe in one call. Switches the chart to the requested symbol/timeframe, then returns bars. **NOTE: mutates the chart and does NOT restore the previous symbol/timeframe.**
@@ -128,7 +114,7 @@ Get fundamental financials (revenue, gross profit, net income, EBITDA, EBIT, tot
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `symbol` | string | **yes** | Symbol (e.g., `"NASDAQ:AMZN"`, `"AAPL"`, `"NYSE:JPM"`) |
-| `fields` | string | no | Comma-separated scanner fields to override defaults |
+| `fields` | string | no | Comma-separated TradingView scanner field names to override the defaults. Default fields: `total_revenue`, `gross_profit`, `net_income`, `oper_income`, `ebitda`, `ebit`, `total_assets`, `total_liabilities`, `total_equity`, `price_earnings_ttm`, `price_book`, `price_cash_flow`, `earnings_per_share_basic_ttm`. Pass a subset to narrow the response. |
 
 #### `forecast_get`
 Get analyst forecast & consensus: price targets (avg/high/low/median), recommendation breakdown (buy/hold/sell), recommendation label (Strong Buy..Strong Sell), next-quarter EPS/revenue estimates, earnings dates.
@@ -136,7 +122,7 @@ Get analyst forecast & consensus: price targets (avg/high/low/median), recommend
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `symbol` | string | **yes** | Symbol (e.g., `"NASDAQ:AMZN"`, `"AAPL"`) |
-| `fields` | string | no | Comma-separated scanner fields to override defaults |
+| `fields` | string | no | Comma-separated TradingView scanner field names to override the defaults. Default fields: `price_target_average`, `price_target_high`, `price_target_low`, `price_target_median`, `price_target_estimates_num`, `recommendation_mark`, `recommendation_buy`, `recommendation_hold`, `recommendation_sell`, `recommendation_total`, `earnings_per_share_forecast_next_fq`, `revenue_forecast_next_fq`, `earnings_release_next_date`, `earnings_release_date`. Pass a subset to narrow the response. |
 
 #### `technicals_get`
 Get TradingView's aggregate technical-analysis rating. Returns recommendation (overall), oscillators, and moving_averages on a ±1 scale: >0.5 Strong Buy, >0.1 Buy, -0.1..0.1 Neutral, <-0.1 Sell, <-0.5 Strong Sell.
@@ -144,7 +130,7 @@ Get TradingView's aggregate technical-analysis rating. Returns recommendation (o
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `symbol` | string | **yes** | Exchange-prefixed symbol (e.g., `"NASDAQ:AMZN"`, `"BINANCE:BTCUSDT"`) |
-| `columns` | string[] | no | Scanner columns to request (default: Recommend.All, Recommend.MA, Recommend.Other) |
+| `columns` | string[] | no | TradingView scanner columns to request. Leave unset to use all three defaults: `"Recommend.All"` (overall TA rating), `"Recommend.MA"` (moving averages rating), `"Recommend.Other"` (oscillators rating). These are the only standard values — omit this parameter unless you specifically want a subset. Each value is on a ±1 scale: >0.5 Strong Buy, >0.1 Buy, -0.1..0.1 Neutral, <-0.1 Sell, <-0.5 Strong Sell. |
 | `interval` | enum | no | `"1h"` \| `"4h"` \| `"1D"` \| `"1W"` \| `"1M"` (default: daily) |
 
 #### `etf_search`
@@ -228,7 +214,23 @@ Fetch a single document by its view_id (from `documents_list`). Requires a Tradi
 
 ---
 
-## Extended Tools (77) — requires `TV_MCP_EXTENDED=1`
+## Extended Tools (82) — requires `TV_MCP_EXTENDED=1`
+
+### Connection
+
+#### `tv_health_check`
+Check CDP connection to TradingView and return current chart state.
+_(no parameters)_
+
+#### `tv_launch`
+Launch TradingView Desktop with Chrome DevTools Protocol enabled. Auto-detects install on Mac, Windows, Linux.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `port` | number | no | CDP port (default 9222) |
+| `kill_existing` | boolean | no | Kill existing TradingView instances first (default true) |
+
+---
 
 ### Diagnostics
 

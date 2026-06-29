@@ -5,7 +5,7 @@ import * as core from '../core/health.js';
 export function registerHealthTools(server) {
   server.tool('tv_health_check', 'Check CDP connection to TradingView and return current chart state', {}, async () => {
     try { return jsonResult(await core.healthCheck()); }
-    catch (err) { return jsonResult({ success: false, error: err.message, hint: 'TradingView is not running with CDP enabled. Use the tv_launch tool to start it automatically.' }, true); }
+    catch (err) { return jsonResult({ success: false, error: err.message, hint: 'TradingView is not running with CDP enabled. The server auto-launches it by default on startup; wait a moment and retry, or use tv_launch in extended mode.' }, true); }
   });
 
   server.tool('tv_discover', 'Report which known TradingView API paths are available and their methods', {}, async () => {

@@ -44,8 +44,8 @@ export async function listDocuments({ symbol, categories, lang = 'en', limit = 2
   const lim = Math.max(1, Math.min(100, Number.isFinite(n) ? n : 20));
 
   const params = new URLSearchParams({ client: 'web' });
-  params.append('filter', `symbol:${symbol}`);
   params.append('filter', `lang:${lang}`);
+  params.append('filter', `symbol:${symbol}`);
   if (Array.isArray(categories) && categories.length) {
     params.append('filter', `id:${categories.join(',')}`);
   }
