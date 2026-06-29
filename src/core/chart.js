@@ -225,14 +225,8 @@ export async function symbolInfo({ symbol, _deps } = {}) {
 export async function symbolSearch({ query, type, _deps } = {}) {
   // Use TradingView's public symbol search REST API (works without auth)
   const { fetch } = _resolve(_deps);
-  const params = new URLSearchParams({
-    text: query,
-    hl: '1',
-    exchange: '',
-    lang: 'en',
-    search_type: type || '',
-    domain: 'production',
-  });
+  const params = new URLSearchParams({ text: query, hl: '1', lang: 'en', domain: 'production' });
+  if (type) params.set('search_type', type);
 
   const url = `https://symbol-search.tradingview.com/symbol_search/v3/?${params}`;
   const data = await restFromNode(fetch, url, {

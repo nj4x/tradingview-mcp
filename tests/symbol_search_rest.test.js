@@ -15,7 +15,14 @@ describe('symbolSearch() via restFromNode DI', () => {
     const fetch = async (url) => { capturedUrl = url; return { ok: true, json: async () => ({ symbols: [] }) }; };
     await symbolSearch({ query: 'AAPL', type: 'stock', _deps: { fetch } });
     assert.ok(capturedUrl.includes('AAPL'), 'URL should contain the query');
-    assert.ok(capturedUrl.includes('stock'), 'URL should contain the type');
+    assert.ok(capturedUrl.includes('search_type=stock'), 'URL should contain the type');
+  });
+
+  it('omits search_type entirely when type is not provided (avoids HTTP 400)', async () => {
+    let capturedUrl = '';
+    const fetch = async (url) => { capturedUrl = url; return { ok: true, json: async () => ({ symbols: [] }) }; };
+    await symbolSearch({ query: 'QQQ', _deps: { fetch } });
+    assert.ok(!capturedUrl.includes('search_type'), 'search_type must be absent when type is not given');
   });
 
   it('strips <em> tags from symbol names', async () => {
