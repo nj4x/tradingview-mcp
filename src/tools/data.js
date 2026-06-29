@@ -56,7 +56,7 @@ export function registerDataTools(server) {
   });
 
   server.tool('quote_get', 'Get real-time quote data for a symbol (price, OHLC, volume)', {
-    symbol: z.string().optional().describe('Symbol to quote (blank = current chart symbol)'),
+    symbol: z.string().describe('Symbol to quote (e.g., "AAPL", "NASDAQ:AMZN", "ES1!")'),
   }, async ({ symbol }) => {
     try {
       const out = await withTab((deps) => core.getQuote({ symbol, _deps: deps }), { route: 'visible' });

@@ -17,7 +17,7 @@ export function registerFinancialsTools(server) {
     'Get fundamental financials for a symbol (revenue, gross profit, net income, EBITDA, EBIT, total assets/liabilities/equity, P/E TTM, P/B, P/CF, EPS basic TTM). Reads TradingView\'s public scanner endpoint — works without TradingView Desktop running.',
     {
       symbol: z.string().describe('Symbol to fetch (e.g., NASDAQ:AMZN, AAPL, NYSE:JPM)'),
-      fields: z.string().optional().describe('Optional comma-separated list of scanner fields to override the defaults (e.g., "total_revenue,net_income,ebitda")'),
+      fields: z.string().optional().describe('Comma-separated TradingView scanner field names to override the defaults. Default fields: total_revenue, gross_profit, net_income, oper_income, ebitda, ebit, total_assets, total_liabilities, total_equity, price_earnings_ttm, price_book, price_cash_flow, earnings_per_share_basic_ttm. Pass a subset to narrow the response.'),
     },
     async ({ symbol, fields }) => {
       try {
@@ -32,7 +32,7 @@ export function registerFinancialsTools(server) {
     'Get analyst forecast & consensus for a symbol: price targets (average/high/low/median), recommendation breakdown (buy/hold/sell), recommendation_mark with a derived recommendation_label (Strong Buy..Strong Sell), next-quarter EPS/revenue estimates, and earnings release dates. Works without TradingView Desktop running.',
     {
       symbol: z.string().describe('Symbol to fetch (e.g., NASDAQ:AMZN, AAPL, NYSE:JPM)'),
-      fields: z.string().optional().describe('Optional comma-separated list of scanner fields to override the defaults (e.g., "price_target_average,recommendation_mark")'),
+      fields: z.string().optional().describe('Comma-separated TradingView scanner field names to override the defaults. Default fields: price_target_average, price_target_high, price_target_low, price_target_median, price_target_estimates_num, recommendation_mark, recommendation_buy, recommendation_hold, recommendation_sell, recommendation_total, earnings_per_share_forecast_next_fq, revenue_forecast_next_fq, earnings_release_next_date, earnings_release_date. Pass a subset to narrow the response.'),
     },
     async ({ symbol, fields }) => {
       try {

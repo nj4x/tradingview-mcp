@@ -325,3 +325,33 @@ export async function launch({ port, kill_existing } = {}) {
     warning: 'TradingView launched but CDP not responding yet. It may still be loading. Try tv_health_check in a few seconds.',
   };
 }
+
+/**
+ * Start a background health monitor that checks CDP every intervalMs milliseconds.
+ * If CDP is unreachable, attempts to relaunch TradingView Desktop automatically.
+ * The timer is unref'd so it never prevents process exit.
+ * @param {{ intervalMs?: number }} opts
+ */
+export function startHealthMonitor({ intervalMs = 30_000, _deps } = {}) {
+  const check = _deps?.cdpReachable || cdpReachable;
+  const ensure = _deps?.ensureTradingViewRunning || ensureTradingViewRunning;
+  let _restarting = false; // re-entrancy guard: skip tick if a relaunch is in progress
+  const timer = setInterval(async () => {
+    if (_restarting) return;
+    const up = await check();
+    if (!up) {
+      _restarting = true;
+      process.stderr.write('⚠  tradingview-mcp  |  CDP unreachable — attempting auto-restart...\n');
+      try {
+        const r = await ensure({ chartTimeoutMs: 60_000 });
+        if (r.launched) process.stderr.write('   Health monitor: TradingView Desktop relaunched.\n');
+      } catch (err) {
+        process.stderr.write(`⚠  Health monitor: auto-restart failed: ${err?.message || err}\n`);
+      } finally {
+        _restarting = false;
+      }
+    }
+  }, intervalMs);
+  timer.unref();
+  return timer;
+}

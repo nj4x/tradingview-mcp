@@ -24,7 +24,7 @@ import { registerDocumentsTools } from './tools/documents.js';
 import { registerCommunityTools } from './tools/community.js';
 import { EXTENDED_TOOLS } from './tools/_groups.js';
 import { startDiagnostics } from './core/diagnostics.js';
-import { ensureTradingViewRunning } from './core/health.js';
+import { ensureTradingViewRunning, startHealthMonitor } from './core/health.js';
 import { ensurePrimarySlot, isPoolDisabled, getPool } from './connection.js';
 
 const tvMcpExtended = process.env.TV_MCP_EXTENDED;
@@ -170,12 +170,12 @@ startDiagnostics();
 process.stderr.write('⚠  tradingview-mcp  |  Unofficial tool. Not affiliated with TradingView Inc. or Anthropic.\n');
 process.stderr.write('   Ensure your usage complies with TradingView\'s Terms of Use.\n\n');
 
-// Warm the primary (visible) tab in the BACKGROUND so the first request doesn't pay
-// adopt-or-create cost — but don't block server startup (ensurePrimarySlot retries for
-// ~15s when TradingView is down). If it fails, the first real tool call surfaces CDP_DOWN.
-// With TV_MCP_AUTO_LAUNCH=1, first auto-launch TradingView Desktop when CDP is unreachable.
+// Auto-launch on startup (on by default; TV_MCP_AUTO_LAUNCH=0 disables). Warms the primary
+// tab in the background so the first request doesn't pay adopt-or-create cost. Health monitor
+// restarts TV if it crashes mid-session.
+const autoLaunch = process.env.TV_MCP_AUTO_LAUNCH !== '0';
 (async () => {
-  if (process.env.TV_MCP_AUTO_LAUNCH === '1') {
+  if (autoLaunch) {
     try {
       const r = await ensureTradingViewRunning({ chartTimeoutMs: 60000 });
       if (r.launched) process.stderr.write('   Auto-launched TradingView Desktop (CDP 9222).\n');
@@ -187,6 +187,9 @@ process.stderr.write('   Ensure your usage complies with TradingView\'s Terms of
 })().catch((err) => {
   process.stderr.write(`⚠  primary tab warmup deferred: ${err?.message || err}\n`);
 });
+
+// Health monitor: check CDP every 30 s and relaunch TV if it goes down.
+if (autoLaunch) startHealthMonitor();
 
 // Graceful shutdown: drain the pool (close self-created tabs, never the user's) on signal.
 let _shuttingDown = false;

@@ -205,6 +205,7 @@ Tool errors carry `{ code, retryable }` (see `src/core/TvError.js`): `POOL_EXHAU
 | `TV_MCP_WORKER_TTL_MS` | `300000` | Idle-worker tab TTL in ms (`=0` disables TTL eviction) |
 | `TV_MCP_FRESH_TIMEOUT_MS` | `8000` | `chart_fetch_ohlcv` bar-freshness gate timeout |
 | `TV_MCP_STRICT_FRESH` | _(unset)_ | `=1` → throw `CHART_TIMEOUT` on stale bars instead of warning |
+| `TV_MCP_AUTO_LAUNCH` | _(on)_ | `=0` → disable auto-launch of TradingView Desktop on startup and the 30s health monitor |
 
 **Symbol affinity:** headless acquire prefers a worker tab already loaded on the requested symbol to avoid redundant reloads. `conn.symbol` is updated lazily post-success via `setSymbolHint` (failed switches never poison the tab's recorded symbol).
 

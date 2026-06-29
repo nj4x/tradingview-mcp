@@ -1,7 +1,7 @@
 // Tools requiring TV_MCP_EXTENDED=1. Default = everything not listed here.
 export const EXTENDED_TOOLS = new Set([
   // health (diagnostic)
-  'tv_discover', 'tv_ui_state',
+  'tv_discover', 'tv_ui_state', 'tv_launch', 'tv_health_check',
   // chart state + control
   'chart_get_state', 'chart_set_symbol', 'chart_set_timeframe', 'chart_set_type',
   'chart_manage_indicator', 'chart_get_visible_range', 'chart_set_visible_range',
@@ -41,5 +41,7 @@ export const EXTENDED_TOOLS = new Set([
   'options_search',
   // depth (unreliable: requires broker-connected DOM panel; zero sizes without Level 2 sub)
   'depth_get',
+  // community (social, REST — noisy/low-signal for default surface)
+  'community_get_ideas', 'community_get_minds', 'community_get_scripts',
 ]);
-// EXTENDED_TOOLS.size === 77; default surface = 88 - 77 = 11 tools
+// EXTENDED_TOOLS.size === 82; total surface = 99; default surface = 17 tools
