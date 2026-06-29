@@ -4,21 +4,15 @@
   "description": "MCP bridge for TradingView Desktop via Chrome DevTools Protocol",
   "type": "module",
   "main": "src/server.js",
-  "bin": {
-    "tv": "src/cli/index.js"
-  },
   "exports": {
     ".": "./src/server.js",
     "./core": "./src/core/index.js"
   },
   "scripts": {
     "start": "node src/server.js",
-    "tv": "node src/cli/index.js",
     "test": "node --test tests/e2e.test.js tests/pine_analyze.test.js",
     "test:e2e": "node --test tests/e2e.test.js",
-    "test:unit": "node --test tests/pine_analyze.test.js tests/cli.test.js tests/tool_groups.test.js tests/sanitization.test.js tests/data_deps.test.js tests/pine_deps.test.js tests/news.test.js tests/alerts.test.js tests/phase1.test.js tests/phase2.test.js tests/phase3.test.js tests/diagnostics.test.js tests/symbol_search_live.test.js tests/resolve.test.js tests/no-singleton-import.test.js tests/pool.test.js tests/withtab.test.js tests/watchlist_panel.test.js tests/rest.test.js tests/watchlist_rest.test.js tests/symbol_search_rest.test.js tests/options.test.js tests/pine_rest.test.js tests/financials.test.js tests/etf.test.js tests/bonds.test.js tests/technicals.test.js tests/documents.test.js tests/community.test.js",
-    "test:cli": "node --test tests/cli.test.js",
-    "test:all": "node --test tests/e2e.test.js tests/pine_analyze.test.js tests/cli.test.js",
+    "test:unit": "node --test tests/pine_analyze.test.js tests/tool_groups.test.js tests/sanitization.test.js tests/data_deps.test.js tests/pine_deps.test.js tests/news.test.js tests/alerts.test.js tests/phase1.test.js tests/phase2.test.js tests/phase3.test.js tests/diagnostics.test.js tests/symbol_search_live.test.js tests/resolve.test.js tests/no-singleton-import.test.js tests/pool.test.js tests/withtab.test.js tests/watchlist_panel.test.js tests/rest.test.js tests/watchlist_rest.test.js tests/symbol_search_rest.test.js tests/options.test.js tests/pine_rest.test.js tests/financials.test.js tests/etf.test.js tests/bonds.test.js tests/technicals.test.js tests/documents.test.js tests/community.test.js",
     "test:verbose": "node --test --test-reporter=spec tests/e2e.test.js tests/pine_analyze.test.js",
     "test:count": "node --test --test-reporter=spec tests/e2e.test.js 2>&1 | tail -5",
     "test:concurrent": "node --test tests/concurrent.e2e.test.js",

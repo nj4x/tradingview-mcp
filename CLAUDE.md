@@ -4,25 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # TradingView MCP — Claude Instructions
 
-88 tools for reading and controlling a live TradingView Desktop chart via CDP (port 9222). The MCP server advertises 12 by default and all 88 with `TV_MCP_EXTENDED=1` (the gate is `src/tools/_groups.js`).
+99 tools for reading and controlling a live TradingView Desktop chart via CDP (port 9222). The MCP server advertises 22 by default and all 99 with `TV_MCP_EXTENDED=1` (the gate is `src/tools/_groups.js`).
 
 ## Development Commands
 
 ```bash
 npm start              # Run the MCP server (stdio transport) — what Claude Code connects to
-npm run tv -- <cmd>    # Run the CLI (alias for the `tv` bin); e.g. npm run tv -- state
-node src/cli/index.js state          # CLI directly; outputs JSON, exit 0=ok 1=error 2=CDP-down
 
 # Tests (node:test, zero test deps)
 npm test               # e2e + pine_analyze (e2e REQUIRES live TradingView on port 9222)
-npm run test:unit      # full offline suite (16 files: pine, cli, sanitization, pool, withtab, phases 1-3, etc.) — no live TradingView needed
+npm run test:unit      # full offline suite (pine, sanitization, pool, withtab, phases 1-3, etc.) — no live TradingView needed
 npm run test:concurrent  # pool concurrency e2e (needs live TV; skips gracefully if tab creation unsupported)
 npm run test:ctool       # concurrent multi-tool integration (CT-1..CT-5; needs live TV)
 node --test tests/sanitization.test.js   # injection-safety unit tests (offline, DI mocks)
 node --test --test-name-pattern="safeString" tests/sanitization.test.js  # single test
 ```
 
-`tests/e2e.test.js`, `tests/replay.test.js`, and `tests/concurrent.e2e.test.js` drive a real chart over CDP and will fail (or skip gracefully) without TradingView Desktop launched with `--remote-debugging-port=9222` (use the `tv_launch` tool or `scripts/launch_tv_debug_*`). `sanitization.test.js`, `pine_analyze.test.js`, and `cli.test.js` run offline.
+`tests/e2e.test.js`, `tests/replay.test.js`, and `tests/concurrent.e2e.test.js` drive a real chart over CDP and will fail (or skip gracefully) without TradingView Desktop launched with `--remote-debugging-port=9222` (use the `tv_launch` tool or `scripts/launch_tv_debug_*`). `sanitization.test.js` and `pine_analyze.test.js` run offline.
 
 `npm run test:concurrent` — pool concurrency tests (distinct tabs, queue-blocking, drain cleanup). These require race-safe tab creation (`PUT /json/new` OR the two-step `window.open` path in `cdpDiscovery.js`); they skip gracefully if neither works on the running build. On this Electron build `PUT /json/new` and `Target.createTarget` are unsupported, so tab growth uses `window.open('about:blank')` from the pool's primary tab, then navigates the blank tab via `location.href` (a navigating `window.open` or any URL `#hash` crashes TV's `BrowserView.autoResize`).
 
@@ -33,8 +31,6 @@ Three layers, each tool exists in all three (e.g. `chart`):
 1. **`src/tools/*.js`** — MCP tool registration. Thin Zod-validated wrappers that call core and wrap the result in `jsonResult()` (`src/tools/_format.js`). `src/server.js` calls every `register*Tools(server)`. Adding a tool = add to the core module + register here.
 2. **`src/core/*.js`** — all real logic. Each function builds a JavaScript expression string and runs it in the TradingView renderer via `evaluate()`. Exported from `src/core/index.js` as the public `./core` package entry.
 3. **`src/connection.js`** — single CDP client (singleton in `client`). `evaluate(expr)` / `evaluateAsync(expr)` send `Runtime.evaluate` to the chart target found by URL match. `KNOWN_PATHS` holds the discovered internal API paths (e.g. `window.TradingViewApi._activeChartWidgetWV.value()`).
-
-`src/cli/*` is a second front-end over the **same** core modules — `src/cli/commands/*.js` register commands with `src/cli/router.js` (built on `node:util` parseArgs, zero deps). MCP and CLI never duplicate logic; both delegate to `core`.
 
 ### Two hard conventions when writing core functions
 
@@ -238,9 +234,10 @@ Multiple clients can attach simultaneously, so DevTools and the MCP server both 
 
 ### Enable TradingView charting-library debug mode
 
-Once the app is running, flip debug mode at runtime via the CLI:
+Once the app is running, flip debug mode at runtime via the DevTools console or CDP:
 ```bash
-npm run tv -- evaluate 'window.TradingViewApi._activeChartWidgetWV.value().setDebugMode(true)'
+# Via Chrome DevTools Console (navigate to chrome://inspect, open the TradingView renderer):
+window.TradingViewApi._activeChartWidgetWV.value().setDebugMode(true)
 ```
 
 This unlocks detailed datafeed processing logs in the renderer console, visible in the Chrome DevTools Console tab.
@@ -256,7 +253,7 @@ This unlocks detailed datafeed processing logs in the renderer console, visible 
 ### CDP domains in use
 
 The project connects to TradingView's renderer via Chrome DevTools Protocol (`src/connection.js`):
-- **`Runtime.enable`** + **`Runtime.evaluate`** — execute JS in the renderer (the core mechanism for all 88 tools)
+- **`Runtime.enable`** + **`Runtime.evaluate`** — execute JS in the renderer (the core mechanism for all 99 tools)
 - **`Page.enable`** + **`Page.captureScreenshot`** — take screenshots
 - **`DOM.enable`** — (enabled but primarily queried via `Runtime.evaluate`, not CDP DOM domain)
 
@@ -283,17 +280,6 @@ For verbose native Electron + Chromium logs, use the observable launch script in
 ./scripts/launch_tv_observable.sh --devtools   # auto-open DevTools tab
 ```
 
-Query the live CDP event buffer via CLI:
-
-```bash
-tv diagnostics -f                   # tail the active session (Ctrl-C to stop)
-tv diagnostics --type exception     # exceptions only
-tv diagnostics --type console       # console.log/warn/error from renderer
-tv diagnostics --since <epoch_ms>   # events after timestamp
-tv diagnostics --limit 50           # last 50 events
-tv logs                             # alias for tv diagnostics
-```
-
 Opt-in env flags (set before starting the MCP server):
 
 ```bash
@@ -302,7 +288,7 @@ TV_MCP_NETWORK=1 TV_MCP_WS_FRAMES=1 npm start   # also capture WebSocket frames
 TV_MCP_EXTENDED=1 npm start         # expose all 88 tools (default: 12 chart+data tools)
 ```
 
-The CLI (`npm run tv -- <cmd>`) is unaffected by `TV_MCP_EXTENDED` — all commands are always available. The flag only gates which tools the MCP server advertises over stdio. An unrecognized value (e.g. `TV_MCP_EXTENDED=foo`) prints a stderr warning and falls back to the default 12-tool mode.
+The flag only gates which tools the MCP server advertises over stdio. An unrecognized value (e.g. `TV_MCP_EXTENDED=foo`) prints a stderr warning and falls back to the default 12-tool mode.
 
 Event types in the buffer: `session_start`, `console`, `exception`, `log`, `network_response`, `network_failed`, `ws_frame`.
 
@@ -363,9 +349,6 @@ worker matches, acquire falls through to normal worker selection (reuse, grow, o
 Each connection's `conn.symbol` is updated lazily via `setSymbolHint` after `setSymbol`,
 `getState`, `fetchOhlcv`, `getMarketStatus`, and `symbolInfo` succeed (only post-success,
 so a failed switch never leaves a stale/poisoned symbol on the tab).
-
-The CLI is unaffected by the pool — it runs one command and exits on the legacy singleton,
-regardless of `TV_MCP_POOL`.
 
 `npm run test:ctool` — concurrent multi-tool integration tests (CT-1..CT-5). Requires live TradingView on `--remote-debugging-port=9222`. Tests prove simultaneous operations on distinct tabs (CT-1/CT-2), tab reuse (CT-3), and TTL-based idle eviction (CT-4/CT-5). All tests use private pool instances — no global singleton is touched.
 
